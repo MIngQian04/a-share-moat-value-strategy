@@ -1,0 +1,9 @@
+ts_code,name,moat_approved,moat_evidence,last_review_date
+# Add only companies you have reviewed.  Dividend yield is not a moat.  Set moat_approved to TRUE after review.
+600519.SH,贵州茅台,FALSE,品牌定价权与渠道质量待正式复核,
+600900.SH,长江电力,FALSE,水电资源稀缺性与现金流稳定性待正式复核,
+600941.SH,中国移动,FALSE,网络规模与自由现金流持续性待正式复核,
+000333.SZ,美的集团,FALSE,规模供应链和全球经营能力待正式复核,
+000651.SZ,格力电器,FALSE,品牌渠道与治理变化待正式复核,
+600377.SH,宁沪高速,FALSE,收费路产现金流与到期风险待正式复核,
+601006.SH,大秦铁路,FALSE,铁路资产壁垒与运量长期趋势待正式复核,

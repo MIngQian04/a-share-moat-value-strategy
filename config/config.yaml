@@ -1,0 +1,27 @@
+project:
+  name: cycle-allocation-engine
+  data_dir: data
+
+data:
+  start_date: "2025-01-01"
+  end_date: "2026-06-30"
+  benchmark: "000300.SH"
+  ingestion_mode: "debug"   # debug | full_market
+
+  indices:
+    benchmark: "000300.SH"
+    dividend: "000922.CSI"
+    cycle_proxy: "000819.CSI"
+
+  stock_universe:
+    max_stocks: null  # null means all eligible A-shares; set an integer only for a debug run
+    exclude_prefixes: ["83", "87", "92"]
+    min_list_days: 800
+
+cache:
+  overwrite: false
+
+full_market:
+  storage_format: "parquet"
+  partition: "year"
+  sleep_seconds: 0.25

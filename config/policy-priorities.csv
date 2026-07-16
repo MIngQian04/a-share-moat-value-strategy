@@ -1,0 +1,10 @@
+policy_code,policy_name,source_level,plan_period,official_source_url,official_chapter,official_wording,classification_note
+NET_TRANSPORT,综合交通网,NATIONAL_PLAN,2026-2030,https://www.gov.cn/yaowen/liebiao/202603/content_7062633.htm,第七章第一节,完善现代化综合交通运输体系,六网派生口径之一；原文未使用六张网总称
+NET_ENERGY,新型能源网,NATIONAL_PLAN,2026-2030,https://www.gov.cn/yaowen/liebiao/202603/content_7062633.htm,第七章第二节,加力建设新型能源基础设施并着力构建新型电力系统,六网派生口径之一；包含智能电网配电网储能和跨区域通道
+NET_WATER,现代水网,NATIONAL_PLAN,2026-2030,https://www.gov.cn/yaowen/liebiao/202603/content_7062633.htm,第七章第三节,加快建设现代化水网,六网派生口径之一；包含防洪调水供水灌溉与水生态治理
+NET_COMM,信息通信网,NATIONAL_PLAN,2026-2030,https://www.gov.cn/yaowen/liebiao/202603/content_7062633.htm,第七章第四节,完善信息通信网络并推进5G-A万兆光网6G技术创新和移动物联网自主迭代,六网派生口径之一；原文属于新型基础设施
+NET_COMPUTE,全国一体化算力网,NATIONAL_PLAN,2026-2030,https://www.gov.cn/yaowen/liebiao/202603/content_7062633.htm,第七章第四节,深入推进东数西算工程构建多层次算力设施体系和全国一体化算力网,六网派生口径之一；必须防范重复建设与低利用率
+NET_SPACE,民用空间基础设施网,NATIONAL_PLAN,2026-2030,https://www.gov.cn/yaowen/liebiao/202603/content_7062633.htm,第七章第四节,完善民用空间基础设施统筹建设卫星通信导航遥感系统并加快低轨卫星互联网组网,六网派生口径之一；项目周期和商业回报不确定性高
+EMERGING_AUTO_ROBOT,智能网联汽车与机器人,NATIONAL_PLAN,2026-2030,https://www.gov.cn/yaowen/liebiao/202603/content_7062633.htm,第五章第一节,发展壮大智能网联新能源汽车和机器人并推进智能驾驶关键技术创新,十五五战略性新兴产业原文口径
+KEY_TECH_IC_INSTRUMENT,集成电路与高端仪器,NATIONAL_PLAN,2026-2030,https://www.gov.cn/yaowen/liebiao/202603/content_7062633.htm,第八章第一节,全链条推动集成电路工业母机高端仪器基础软件先进材料等关键核心技术攻关,十五五关键核心技术原文口径
+FUTURE_EMBODIED_AI,具身智能未来产业,NATIONAL_PLAN,2026-2030,https://www.gov.cn/yaowen/liebiao/202603/content_7062633.htm,第五章第二节,推动具身智能成为新的经济增长点,十五五未来产业原文口径；技术路线和商业模式仍需验证

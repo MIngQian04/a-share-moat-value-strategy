@@ -1,0 +1,6 @@
+release_date,week_end,metric,value,unit,source,note
+2026-07-12,2025-12-31,bc_market_share_2025,6.7,%,用户提供《爱旭股份 投资分析》,研究假设/待外部复核
+2026-07-12,2026-12-31,bc_market_share_2026_forecast,15-25,%,用户提供《爱旭股份 投资分析》,预测/待验证
+2026-07-12,2026-12-31,bc_global_shipments_2026_forecast,50-80,GW,用户提供《爱旭股份 投资分析》,预测/待验证
+2026-07-12,2025-12-31,bc_utilisation,60,%,用户提供《爱旭股份 投资分析》,研究假设/待外部复核
+# Add release-date-aligned industry observations. Suggested metrics: polysilicon_price_cny_kg,bc_premium_cny_w,module_price_cny_w,solar_inventory_days,china_export_growth_pct.

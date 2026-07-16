@@ -1,0 +1,38 @@
+# Secrets: commit the example only.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Python environments and caches.
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local data, generated portfolios and logs.
+data/raw/
+data/processed/
+outputs/
+work/
+*.log
+
+# Editors and operating-system files.
+.idea/
+.vscode/
+.DS_Store
+__MACOSX/
+
+# The public website is maintained as an independent repository.
+portfolio-site/
+
+# Build artifacts.
+build/
+dist/
+*.egg-info/

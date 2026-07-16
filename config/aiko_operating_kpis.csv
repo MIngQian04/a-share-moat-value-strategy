@@ -1,0 +1,7 @@
+announcement_date,period_end,metric,value,unit,source,note
+2026-04-16,2026-12-31,abc_conversion_capacity,11,GW,公司2026-04-16董事会公告（义乌/滁州技改）,已公告；5GW义乌PERC+6GW滁州TOPCon拟升级为ABC
+2026-04-16,2026-12-31,abc_conversion_capex,16.65,亿元,公司2026-04-16董事会公告（义乌/滁州技改）,已公告；实际投产与爬坡仍待后续公告验证
+2026-04-16,2026-12-31,ywu_abc_conversion_capacity,5,GW,公司2026-04-16董事会公告（义乌技改）,已公告；项目进度待跟踪
+2026-04-16,2026-12-31,chuzhou_abc_conversion_capacity,6,GW,公司2026-04-16董事会公告（滁州技改）,已公告；项目进度待跟踪
+2026-07-12,2026-12-31,abc_shipments_target,20+,GW,用户提供《爱旭股份 投资分析》,预测/待验证；不可视为已实现出货
+# Add only facts that were public on announcement_date. Suggested metrics: abc_shipments_gw,abc_capacity_gw,abc_utilisation_pct,abc_gross_margin_pct,overseas_revenue_share_pct,order_backlog_gw.

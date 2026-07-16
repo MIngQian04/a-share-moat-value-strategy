@@ -1,0 +1,71 @@
+# Cycle Exposure Classification Rules
+#
+# These are conservative initial rules.
+# They DO NOT replace human/AI business research.
+#
+# exposure_type:
+#   DIRECT_PRICE  : commodity/product price directly affects revenue/profit
+#   MARGIN        : spread / processing margin exposure
+#   DEMAND        : downstream demand cycle exposure
+#   CAPEX         : upstream capex / service exposure
+#   SUBSTITUTION  : substitution or alternative-product exposure
+#   SHARED_MACRO  : moves with the theme because of broad macro/sector beta
+#   UNKNOWN       : requires research
+
+default_exposure_type: UNKNOWN
+
+rules:
+  copper:
+    DIRECT_PRICE:
+      industries: ["铜"]
+      name_keywords: ["铜业", "铜陵", "江西铜业", "云南铜业", "北方铜业"]
+    CAPEX:
+      name_keywords: ["金诚信"]
+    SHARED_MACRO:
+      industries: ["铅锌", "黄金", "铝", "小金属"]
+
+  lithium:
+    DIRECT_PRICE:
+      name_keywords: ["锂", "盐湖", "天齐", "赣锋", "融捷", "盛新", "西藏矿业", "中矿资源", "永兴材料"]
+      industries: ["小金属"]
+    MARGIN:
+      name_keywords: ["天赐材料", "多氟多"]
+    SHARED_MACRO:
+      industries: ["铅锌", "普钢"]
+
+  coal:
+    DIRECT_PRICE:
+      industries: ["煤炭开采"]
+      name_keywords: ["煤", "神华", "陕西煤业", "中煤", "兖矿", "焦煤", "晋控", "山煤"]
+    SHARED_MACRO:
+      industries: ["石油开采", "石油加工"]
+
+  oil:
+    DIRECT_PRICE:
+      industries: ["石油开采"]
+      name_keywords: ["中国石油", "中国海油"]
+    MARGIN:
+      industries: ["石油加工"]
+      name_keywords: ["中国石化"]
+    CAPEX:
+      name_keywords: ["中海油服", "海油工程", "海油发展"]
+
+  solar:
+    DIRECT_PRICE:
+      name_keywords: ["隆基", "通威", "天合", "晶科", "TCL中环"]
+    DEMAND:
+      name_keywords: ["阳光电源", "锦浪科技", "固德威", "艾罗能源"]
+    UNKNOWN:
+      name_keywords: ["爱旭"]
+
+  steel:
+    DIRECT_PRICE:
+      industries: ["普钢", "特钢"]
+      name_keywords: ["宝钢", "华菱", "河钢", "鞍钢"]
+
+  fertilizer:
+    DIRECT_PRICE:
+      industries: ["农药化肥"]
+      name_keywords: ["云天化", "兴发", "湖北宜化", "云图", "新洋丰", "芭田", "川金诺"]
+    SHARED_MACRO:
+      industries: ["化工原料", "化纤"]

@@ -1,0 +1,18 @@
+column,meaning
+theme,cycle theme
+ts_code,security code
+cash,cash and cash equivalents
+short_debt,short-term interest-bearing debt
+ebit,EBIT
+interest_expense,interest expense
+operating_cash_flow,net operating cash flow
+total_debt,total interest-bearing debt
+total_assets,current total assets
+total_assets_prev,previous comparable-period total assets
+fixed_assets,current fixed assets
+fixed_assets_prev,previous comparable-period fixed assets
+construction_in_progress,current construction in progress
+construction_in_progress_prev,previous comparable-period construction in progress
+revenue,current revenue
+revenue_prev,previous comparable-period revenue
+cash_from_asset_disposals,cash received from disposal of fixed/intangible/long-term assets
