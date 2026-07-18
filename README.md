@@ -1,139 +1,225 @@
 # A-Share Moat Value Strategy
 
-**English: this page** · **中文：** [README.zh-CN.md](README.zh-CN.md)
+**Machines search. Humans judge. Rules execute. Markets verify.**
+
+An AI-assisted A-share investment research and decision framework combining cross-industry screening, policy and future-demand research, falsifiable moat evidence, five-scenario DCF valuation, rule-based position sizing and forward NAV accounting.
+
+**中文版本：** [README.zh-CN.md](README.zh-CN.md) · **Public site:** [ming-daily-portfolio.qianmin968641.chatgpt.site](https://ming-daily-portfolio.qianmin968641.chatgpt.site)
 
 <p align="center">
-  <img src="docs/assets/portfolio-overview.png" alt="A-share moat value strategy: anchor holdings, future options and cash" width="900">
+  <img src="docs/assets/portfolio-overview.png" alt="Portfolio overview showing anchor holdings, future options and cash" width="900">
 </p>
 
-<p align="center"><strong>A research framework that keeps mechanical AI screening, human judgement and forward-looking NAV accounting separate.</strong></p>
+> **Research project only.** Not investment advice. The project does not connect to a broker, place orders or provide automatic live trading.
 
-<p align="center">
-  <a href="https://ming-daily-portfolio.qianmin968641.chatgpt.site">Public read-only site</a> ·
-  <a href="LICENSE">MIT License</a> ·
-  <a href="SECURITY.md">Security</a>
-</p>
+[MIT License](LICENSE) · [Security](SECURITY.md) · [Reproducibility notes](docs/REPRODUCIBILITY.md)
 
-> Research only. This is not investment advice, does not connect to a broker and never places orders automatically.
+## Why this project exists
 
-## What this project solves
+Investing is often pushed toward one of two extremes: discretionary stories that are difficult to reproduce, or automated models that treat uncertain qualitative evidence as if it were a clean number.
 
-The strategy does not pretend to know the future. It separates the decision into three layers:
+This project assigns each job to the tool best suited to it:
 
-1. **Model screening** — narrow the full A-share universe to candidates that pass valuation, cash-flow, industry-position and evidence checks.
-2. **Human fine-tuning** — judge industry outlook, the probability of profit improvement and whether risks are already priced in; adjust weights only within the documented limits.
-3. **Forward accounting** — a signal produced after today’s close becomes effective on the next trading day; today’s return always uses the portfolio published on the previous trading day.
+- Machines process a large A-share universe consistently and expose valuation, cash-flow and data-quality exceptions.
+- Humans assess uncertain futures: industry cycles, policy implementation, profit-pool migration and whether a moat thesis still makes sense.
+- Rules constrain position changes, evidence states and T+1 accounting so a persuasive narrative cannot silently become a trade.
+- Market observations provide the forward record used to verify the whole decision process.
+
+The goal is not to predict every price move. It is to make a conservative research process inspectable, reproducible and honest about what is still unknown.
+
+## The four-layer decision framework
 
 ```mermaid
 flowchart LR
-    A[National plans and future demand] --> B[Research scope and profit pools]
-    C[Full A-share stable-company scan] --> D[Cash flow · valuation · industry position]
-    B --> E[Candidate universe]
-    D --> E
-    E --> F[Model baseline weights]
-    F --> G[Human outlook and industry-risk fine-tuning]
-    G --> H[T+1 target portfolio]
-    H --> I[Effective after next-session open]
-    I --> J[Forward NAV and dividend ledger]
+    A[Machine\nSearch] --> B[Human\nJudge]
+    B --> C[Rules\nExecute]
+    C --> D[Market\nVerify]
+    D -. evidence and performance feedback .-> A
 ```
 
-The portfolio does not lower its standards just to stay fully invested. Cash is retained when there are not enough qualified names, evidence is incomplete or an industry limit has been reached.
-
-## One-minute website guide
-
-Open the [public site](https://ming-daily-portfolio.qianmin968641.chatgpt.site) for the latest published snapshot.
-
-- **Today / daily return**: realized return for the latest completed session, calculated from the previous session’s published target portfolio.
-- **Next execution**: the T+1 model target; reference close prices are not assumed fills. Unless actual fills are entered, the reproducible execution proxy is the next session’s open.
-- **Actual fills**: enter execution price, quantity and fees. These values override the model proxy for the personal-account view and show unfilled or partially filled orders separately.
-- **Portfolio report**: open all holdings and click a name to inspect its moat thesis, evidence status, DCF sensitivities, AI valuation review and public institution references.
-- **Benchmark**: the chart compares the strategy with a CSI 300 raw-close proxy from the strategy start date. The benchmark is shown for every available range; missing benchmark dates are carried forward and labeled rather than silently dropped.
-- **Guide and language**: click “使用说明” for the workflow guide and use the language link at the top of this README for the Chinese version.
-
-## Core principles
-
-### Screening is not the final decision
-
-The scanner provides a conservative, repeatable baseline. It does not know whether a property cycle will recover, whether a future-demand story will be delivered or whether a temporary valuation premium is justified. Human judgement can fine-tune weights within the rules, but it cannot bypass evidence, risk limits or the T+1 accounting boundary.
-
-### Moat evidence must be falsifiable
-
-Company announcements, government sources and first-hand industry material with a date and traceable link are the only evidence allowed to change a moat status. Financial metrics can verify the economic outcome of a moat; they cannot turn a draft thesis into `INTACT` automatically.
-
-The radar distinguishes data-access failure from a clean scan:
-
-- `PENDING_REVIEW` pauses additional buying but never auto-writes the evidence ledger, sells, rebalances or places an order.
-- `CAUTION` highlights what to watch and pauses additional buying.
-- `CONTRADICTS` triggers `WEAKENED` and the reduction action configured in the thesis registry.
-- A due review is shown as `REVIEW_DUE`; it is never silently postponed.
-- `UNAVAILABLE`, `PARTIAL` and `OFFLINE` mean the announcement scan did not provide complete coverage. They must not be interpreted as “no risk found”.
-
-### Evidence ladder
-
-| Layer | What it can do | What it cannot do |
+| Layer | Current responsibility | Explicit boundary |
 | --- | --- | --- |
-| Model screening | Produce a baseline candidate and weight | Prove a moat or predict the future |
-| Human review | Confirm whether the AI thesis fits the business and outlook | Rewrite dated source evidence |
-| Public primary evidence | Change moat status when traceable and dated | Guarantee future returns |
-| Financial outcomes | Validate economic results | Automatically promote a draft thesis |
+| **Machine — Search** | Scan the full market, statements, valuation, cash flow, survival quality, industry position and evidence completeness. | It narrows the research universe; it does not prove a moat or forecast a company’s future. |
+| **Human — Judge** | Review future demand, policy context, industry risk and dated primary evidence; record a moat confirmation or concern. | Human review is not an unrestricted whole-market stock picker and does not rewrite historical NAV. |
+| **Rules — Execute** | Convert screened candidates and evidence states into anchor/future/cash weights, staged changes and T+1 target positions. | It produces a model target and execution proxy; it never sends a brokerage order. |
+| **Market — Verify** | Record forward daily NAV and compare it with a CSI 300 raw-close proxy. | The sample is short and the benchmark is a price-index proxy, not a guaranteed excess-return claim. |
 
-The human-review boolean is informational and does not by itself set a holding weight to zero. A grey card means “not yet judged”; adverse future evidence creates alerts rather than pretending uncertainty is a fact.
+## System architecture
 
-### DCF sensitivity
-
-The DCF has five discount-rate presets: very optimistic, optimistic, base, cautious and very cautious. They are valuation scenarios, not five independent forecasts. The selected sensitivity changes the discount rate and valuation reference; it does not override missing data or evidence rules.
-
-### Forward NAV and dividends
-
-- A target portfolio published after the close starts on the next trading day.
-- Daily return uses raw close-to-close price changes plus the after-tax `cash_div` proxy and `stk_div` split ratio.
-- Ex-rights date confirms the dividend entitlement; payment date turns it into cash pending reinvestment; the next trading day reinvests by target weight.
-- Adjusted prices are not combined with separately added dividends, so distributions are not double counted.
-- The CSI 300 comparison uses an original-close proxy and does not include dividends.
-
-### Position sizing
-
-Future-demand positions follow a two-way ladder: `OPTION_SEED` 2.5%, `CONFIRMED_BUILD` 5% after at least two milestone categories are verified, and `PROMOTED_CORE` 7.5% only after all three categories, no unresolved risk and a visible trend. Evidence deterioration steps the position down through the same ladder. A-share lot size is 100 shares; the minimum account-size check uses the most expensive one-share lot required by the target portfolio.
-
-## Public website features
-
-The site is a read-only presentation of the committed data snapshot. It includes:
-
-- period returns and cumulative return;
-- current prices, target weights and cash;
-- daily, cumulative and strategy-versus-CSI-300 NAV curves;
-- all available benchmark ranges and cumulative excess return;
-- browser-local strategy start date;
-- per-stock moat files and AI valuation review;
-- first-open usage guide and bilingual labels;
-- swipeable Today / Next Execution boards;
-- local actual-fill overrides for price, quantity and fees.
-
-## Repository layout
-
-```text
-config/                 Strategy, moat and future-milestone configuration
-data/                   Local market and financial-data cache
-memory/                 Durable project state and decisions
-outputs/                Screening, radar, portfolio and NAV outputs
-portfolio-site/         Read-only static website
-scripts/                Refresh, screening and strategy entry points
-valuation/              DCF and valuation helpers
-docs/                   Method notes and visual assets
+```mermaid
+flowchart LR
+    subgraph Inputs
+      F[Financial statements]
+      P[Market prices]
+      A[Company announcements]
+      G[Government policy]
+      I[Industry data]
+      R[Public research references]
+      H[Human review records]
+    end
+    subgraph Core modules
+      S[Fundamental screening]
+      M[Policy and future-demand mapping]
+      E[Moat evidence registry]
+      V[Owner-earnings DCF]
+      Q[Moat radar]
+      W[Position engine]
+      T[T+1 target and dividend ledger]
+      N[Forward NAV and benchmark]
+    end
+    subgraph Outputs
+      C[Candidate pool]
+      D[Moat research files]
+      X[Valuation scenarios]
+      Y[Target positions]
+      Z[Pending-review alerts]
+      O[Portfolio snapshots and NAV history]
+    end
+    F --> S
+    P --> S
+    G --> M
+    I --> M
+    A --> E
+    H --> E
+    R --> E
+    S --> C
+    M --> C
+    C --> V --> X
+    E --> D
+    E --> Q --> Z
+    C --> W --> Y
+    X --> W
+    Y --> T --> N --> O
 ```
 
-## Local setup
+Public institutional research and news are research inputs for human review. They are not an automatic signal source and do not by themselves change a position. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for module boundaries and [docs/METHODOLOGY.md](docs/METHODOLOGY.md) for calculations.
 
-Requirements: Python 3.10+, Node.js/npm for the website, and a Tushare token available only through the local `.env` file. Never print, copy, commit or write the token into outputs or documentation.
+## Core capabilities
+
+### Cross-industry fundamental screening
+
+The current pipeline works from a Tushare-backed A-share universe and local caches. It combines valuation, owner earnings, cash-flow conversion, financial quality, survival checks, industry position and data completeness. Anchor candidates have explicit limits for leverage, valuation multiples, positive operating history, ROE, margin stability, industry concentration and missing financial data.
+
+The output is a candidate pool and an auditable reason for each inclusion or exclusion—not a promise that every passing company should be bought.
+
+### Policy and future-demand mapping
+
+National plans and industrial material define research directions, potential profit pools and milestone questions. The policy gate requires a national-plan source and a traceable government URL; policy alignment is a research-universe filter, not a direct stock-return predictor.
+
+Future candidates are scored on demand certainty, bottleneck strength, value capture, exposure confidence, competition risk and substitution risk. A high score is research priority, not a buy signal, and the scripts never mark `config/future-milestones.csv` as `VERIFIED` without dated evidence.
+
+### Economic moat evidence system
+
+Each moat thesis is intended to describe a durable, difficult-to-replicate advantage—such as pricing power, cost advantage, network effects, switching costs, scarce licences/resources, brand, channel, scale or institutional access—and the cash-flow or return-on-capital outcomes it should produce.
+
+The registry and append-only evidence ledger track the mechanism, why it is difficult to copy, dated traceable primary sources, observable indicators, invalidation conditions, next review date and the configured action if evidence weakens. Financial metrics can validate economic results; they cannot automatically promote a `DRAFT` thesis to `INTACT`.
+
+### Five-scenario DCF valuation
+
+`valuation/owner_earnings.py` builds owner earnings from annual point-in-time statements, uses the median of the latest three observations, adds net cash and values five forecast years plus a terminal value. Growth is capped between -2% and 6%; the base discount rate is 10% and terminal growth is 2.5%.
+
+| Scenario | Discount rate |
+| --- | ---: |
+| `VERY_OPTIMISTIC` | 8% |
+| `OPTIMISTIC` | 9% |
+| `BASE` | 10% |
+| `CAUTIOUS` | 11% |
+| `VERY_PESSIMISTIC` | 12% |
+
+The base case is the repeatable screening gate. The other cases show how margin of safety changes when the required return moves; they do not secretly change the operating forecast.
+
+### Moat radar
+
+`scripts/run_moat_radar.py` checks held companies for announcement keywords covering regulatory, governance, operating and survival risks, same-period financial deterioration and overdue review dates. It writes `moat_radar_alerts.csv` and `moat_radar_health.csv`.
+
+Every hit is `PENDING_REVIEW`. The radar does not write the evidence ledger, silently classify a thesis, sell, reduce, rebalance or place an order. `OK`, `PARTIAL`, `UNAVAILABLE` and `OFFLINE` announcement coverage are distinct health states; incomplete access is never reported as “no risk”. The moat monitor uses `REVIEW_DUE`, `WEAKENED`, `WATCH`, `INTACT` and `DRAFT`.
+
+### Rule-based position management
+
+The barbell policy keeps a stable anchor budget, a capped future-demand budget and an explicit cash floor. Existing anchor positions are sticky; ordinary daily score differences do not force a full replacement. New or reduced positions move through documented steps.
+
+| State | Reference weight | Meaning in the current policy |
+| --- | ---: | --- |
+| `RESEARCH_ONLY` | 0% allocation | A research candidate that has not passed the required gates. |
+| `OPTION_SEED` | 2.5% | A valuation-supported future option with seed evidence and timing gates. |
+| `CONFIRMED_BUILD` | 5% | At least two milestone classes are verified with the required evidence. |
+| `PROMOTED_CORE` | 7.5% | Three milestone classes, no unresolved invalidation and trend confirmation. |
+
+The current configuration caps future positions at 25% in total, a single theme at 15%, keeps a 10% cash floor and caps an anchor name at 15%. These are policy references, not guarantees about every snapshot. Evidence deterioration moves a future position down the same ladder; an invalidated thesis is not an allocation state.
+
+### Real forward NAV
+
+1. A signal published after the close becomes a target for the next trading day.
+2. Today’s return uses the target portfolio already published on the previous trading day.
+3. Model reference prices are not assumed fills. The website can store visitor-local actual price, quantity and fee overrides; unfilled and partial orders remain pending and do not rewrite model NAV.
+4. NAV uses raw close-to-close changes plus the after-tax `cash_div` proxy and `stk_div` split ratio. Ex-rights confirms entitlement, payment creates pending cash, and the next session reinvests by target weight.
+5. Adjusted prices are not combined with separate dividends, preventing double counting.
+6. The CSI 300 (`000300.SH`) comparison uses an original-close proxy, excludes index dividends and reports missing dates as `PARTIAL` or `UNAVAILABLE` rather than fabricating values.
+
+## End-to-end workflow
+
+```mermaid
+flowchart TD
+    A[All A-share companies] --> B[Point-in-time financial and valuation screen]
+    B --> C[Policy and future-demand research map]
+    C --> D[Moat thesis and primary-evidence review]
+    D --> E[Five-rate DCF sensitivity]
+    E --> F[Model baseline weights]
+    F --> G[Human outlook and industry-risk review]
+    G --> H[T+1 target portfolio]
+    H --> I[Forward NAV and dividend ledger]
+    I --> J[CSI 300 comparison and market feedback]
+```
+
+## Portfolio design
+
+The portfolio is a barbell rather than a forced full-investment ranking:
+
+- **Anchor:** conservative, cash-generative companies with valuation and industry limits; the configured anchor budget is 65% and the per-name cap is 15%.
+- **Future options:** a capped 25% budget for evidence-backed future-demand candidates, staged at 2.5%, 5% and 7.5% as evidence and milestones accumulate.
+- **Cash:** at least 10% under the current policy, and potentially more when the screen, evidence or industry caps do not justify additional exposure.
+
+Cash is a valid output. It is the accounting result of refusing to lower valuation, evidence or risk standards merely to remain invested.
+
+## Human–AI responsibility boundary
+
+| Responsibility | Machine | Human |
+| --- | :---: | :---: |
+| Scan financial data and calculate screening metrics | Yes | Review exceptions |
+| Calculate owner-earnings DCF and sensitivities | Yes | Validate assumptions and context |
+| Detect announcements and financial anomalies | Yes | Interpret significance and source quality |
+| Map policy and future-demand questions | Support | Decide whether the thesis is credible |
+| Organise moat evidence and review dates | Yes | Confirm, challenge or update the thesis |
+| Generate model target weights | Yes | Fine-tune only through documented overrides |
+| Execute brokerage trades | No | Outside project scope |
+| Rewrite historical NAV with later information | No | No |
+
+The repository contains a deterministic Python research pipeline and static, configuration-backed “local AI research aid” briefs. It does **not** contain a DeepSeek/OpenAI/other LLM API runtime. Model-assisted evidence summarisation is a future idea, not a current capability.
+
+## Public website
+
+Open the [read-only public site](https://ming-daily-portfolio.qianmin968641.chatgpt.site) for the latest published snapshot. The separate `portfolio-site/` repository presents daily/cumulative/period NAV views, Today versus Next Execution boards, full holdings, per-stock moat files, DCF sensitivity, valuation-repair briefs, curated public-institution references, moat radar health, local actual-fill records, bilingual labels and a first-open usage guide.
+
+Public institutional references are curated/static inputs in `config/valuation-repair-briefs.json`; the site does not automatically search the web on every visit. The website source is an independent nested repository ignored by the root repository.
+
+<p align="center"><img src="docs/assets/benchmark_comparison.png" alt="Strategy and CSI 300 benchmark comparison" width="900"></p>
+<p align="center"><img src="docs/assets/nav_attribution_events.png" alt="Forward NAV attribution and dividend events" width="900"></p>
+
+These are repository snapshots for orientation, not a promise that the displayed dates are current. Dedicated screenshots for the moat detail dialog, radar-health panel and actual-fill ledger are not yet stored under `docs/assets/`.
+
+## Quick start
+
+Requirements: Python 3.10+, a local Tushare token, and Node.js/npm only if you build the separate website. Different Tushare endpoints may require different permissions.
 
 ```bash
 cd /Users/ming/Desktop/workspace/a-share-cycle-rotation-strategy
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+cp .env.example .env
 ```
 
-Run the daily pipeline in this order, using only the latest completed trading day:
+Put the token only in the local `.env`; never print, copy, commit or write it into outputs, screenshots or documentation.
 
 ```bash
 python3 scripts/refresh_rotation_market_data.py
@@ -142,26 +228,16 @@ python3 scripts/run_future_demand_screen.py --refresh-financials
 python3 scripts/run_barbell_strategy.py
 ```
 
-Build the site:
+When a source is unavailable, keep the cache and report unavailable data; do not convert missing data into zero risk or zero value. For cache-only checks:
 
 ```bash
-cd portfolio-site
-npm ci
-npm run build
+python3 scripts/run_moat_radar.py --offline
+python3 scripts/run_barbell_strategy.py --offline
 ```
 
-## Key files
+Build the separate website with `cd portfolio-site && npm ci && npm run build`.
 
-- `config/portfolio-config.yaml` — strategy constraints and target weights.
-- `config/moat-thesis-registry.csv` — dynamic moat theses and review dates.
-- `config/moat-evidence-ledger.csv` — append-only dated evidence ledger.
-- `config/future-milestones.csv` — milestone evidence; scripts must not mark rows `VERIFIED` without dated sources.
-- `outputs/barbell-strategy/target_portfolio.csv` — the next-session model target.
-- `outputs/barbell-strategy/portfolio_nav_history.csv` — forward daily NAV history.
-- `outputs/barbell-strategy/portfolio_dividend_ledger.csv` — entitlement, cash and reinvestment ledger.
-- `outputs/barbell-strategy/moat_radar_alerts.csv` and `moat_radar_health.csv` — radar events and coverage health.
-
-## Tests and checks
+Run checks:
 
 ```bash
 python3 -m pytest -q
@@ -169,12 +245,59 @@ python3 -m compileall -q portfolio scripts valuation tests
 python3 scripts/check_public_release.py
 ```
 
-The release check rejects accidental tokens and validates the public snapshot before publication.
+## Repository structure
+
+- `config/` — strategy assumptions, policy mapping, milestones and evidence ledgers.
+- `data_loader/` — Tushare clients, local market cache, announcements and dividends.
+- `fundamental/` — point-in-time statements and survival-quality inputs.
+- `industry/` — industry-cycle and future-demand research.
+- `selection/` — candidate pool, policy gates, moat evidence and radar rules.
+- `valuation/` — owner-earnings normalisation and DCF valuation.
+- `portfolio/` — position rules, dividend accounting, NAV and site export.
+- `scripts/` — daily workflows and command-line entry points.
+- `tests/` — automated tests for research, moat, portfolio and accounting rules.
+- `docs/` — methodology, reproducibility notes, diagrams and snapshots.
+- `portfolio-site/` — independent nested website repository, ignored by this root repository.
+
+Raw caches, generated outputs, `.env` and website build artifacts are intentionally not part of the public root release.
+
+## Methodology and documentation
+
+Detailed implementation notes live in [docs/METHODOLOGY.md](docs/METHODOLOGY.md): point-in-time data, valuation, policy/future-demand research, falsifiable moat theses, evidence states, position transitions, T+1 execution, dividend accounting, benchmark construction, missing-data handling and reproducibility limits.
+
+Further notes: [Architecture](docs/ARCHITECTURE.md) · [Runbook](docs/RUNBOOK.md) · [Future evidence workflow](docs/FUTURE_EVIDENCE_WORKFLOW.md) · [Legacy research notice](docs/LEGACY_RESEARCH_NOTICE.md) · [Reproducibility](docs/REPRODUCIBILITY.md).
+
+## Roadmap
+
+### Implemented
+
+- Cross-industry screening with local-cache and Tushare data paths.
+- Policy/future-demand mapping with evidence-gated position states.
+- Moat thesis registry, append-only evidence ledger and radar health output.
+- Five discount-rate DCF sensitivity around a 10% base case.
+- Sticky anchors, staged future positions, cash floor and documented manual overrides.
+- Forward NAV with T+1 targets, dividend ledger and raw-price accounting.
+- CSI 300 price-proxy comparison and public snapshot export.
+- Independent bilingual read-only website with local actual-fill tracking.
+
+### In progress / partial
+
+- Announcement coverage depends on Tushare `anns_d` permissions and network availability.
+- Primary-source evidence and human moat confirmations still require manual research and ledger edits.
+- Public institution references are curated configuration data, not an automatic web-research service.
+- The forward record is young; longer sample-out-of-sample evaluation and transaction-cost analysis are not presented as complete.
+
+### Future ideas
+
+- LLM-assisted evidence summarisation with source citations and human approval.
+- More redundant data providers and explicit factor/return attribution.
+- Broader industry milestone tracking, multi-benchmark comparisons and a portfolio decision audit log.
+- A reproducible, transaction-cost-aware rolling sample-out-of-sample study.
+
+## Limitations and disclaimer
+
+This is research software, not investment advice. It has no guaranteed return, no broker connection and no automatic live trading. Policy direction does not guarantee company profit; DCF values depend on assumptions; moat analysis can be wrong; public research can be incomplete or biased; Tushare endpoints can fail or require permissions; and the forward NAV history currently has a limited sample. The CSI 300 comparison is a raw-close price proxy rather than a total-return index. Liquidity, fees, lot size, taxes and execution slippage can make real results differ from both the model and any local actual-fill record.
 
 ## Security, contributions and license
 
-Keep credentials in local environment files only. Do not connect a broker or add order-placement code. Contributions should include a focused test or reproducible check and explain any change to accounting, evidence status or position limits. See [SECURITY.md](SECURITY.md) for reporting security issues. This project is released under the [MIT License](LICENSE).
-
-## Disclaimer
-
-This repository is for research and software demonstration. Data may be delayed, incomplete or unavailable; model prices are not execution promises; actual trading involves fees, liquidity, limits and slippage. Nothing here is investment advice or a recommendation to buy or sell any security.
+Keep credentials in local environment files only. Do not add order-placement code or commit private data. Contributions should include a focused test or reproducible check and explain any change to accounting, evidence status or position limits. See [SECURITY.md](SECURITY.md) and [CONTRIBUTING.md](CONTRIBUTING.md). Licensed under the [MIT License](LICENSE).
