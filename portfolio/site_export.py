@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
+from dotenv import load_dotenv
 
 from selection.moat_monitor import build_moat_monitor
 
@@ -32,6 +34,54 @@ BENCHMARK_PATH = PROJECT_ROOT / "data/processed/index_benchmark.csv"
 BENCHMARK_CODE = "000300.SH"
 BENCHMARK_NAME = "沪深300"
 BENCHMARK_NAME_EN = "CSI 300"
+
+
+def _normalize_benchmark_dates(values: pd.Series) -> pd.Series:
+    raw_dates = values.astype(str).str.strip()
+    normalized = pd.to_datetime(raw_dates, format="%Y%m%d", errors="coerce")
+    normalized = normalized.fillna(pd.to_datetime(raw_dates, errors="coerce"))
+    return normalized.dt.strftime("%Y-%m-%d")
+
+
+def _refresh_benchmark_cache(nav_dates: list[str]) -> None:
+    """Best-effort refresh of missing CSI 300 dates; never fabricates values."""
+    if not nav_dates:
+        return
+    cached = pd.DataFrame()
+    if BENCHMARK_PATH.exists():
+        try:
+            cached = pd.read_csv(BENCHMARK_PATH)
+            if "trade_date" in cached:
+                cached["trade_date"] = _normalize_benchmark_dates(cached["trade_date"])
+        except (OSError, pd.errors.ParserError):
+            cached = pd.DataFrame()
+    cached_dates = set(cached.get("trade_date", pd.Series(dtype=str)).dropna().astype(str))
+    missing = [date for date in nav_dates if date not in cached_dates]
+    if not missing:
+        return
+    load_dotenv(PROJECT_ROOT / ".env")
+    token = os.getenv("TUSHARE_TOKEN") or os.getenv("TS_TOKEN") or os.getenv("TUSHARE_API_TOKEN")
+    if not token:
+        return
+    try:
+        import tushare as ts
+        ts.set_token(token)
+        raw = ts.pro_api().index_daily(
+            ts_code=BENCHMARK_CODE,
+            start_date=min(nav_dates).replace("-", ""),
+            end_date=max(nav_dates).replace("-", ""),
+        )
+    except Exception:
+        return
+    if raw is None or raw.empty or "trade_date" not in raw or "close" not in raw:
+        return
+    raw = raw.copy()
+    raw["trade_date"] = _normalize_benchmark_dates(raw["trade_date"])
+    merged = pd.concat([cached, raw], ignore_index=True) if not cached.empty else raw
+    merged = merged.drop_duplicates(["trade_date", "ts_code"] if "ts_code" in merged else ["trade_date"], keep="last")
+    merged = merged.sort_values("trade_date")
+    BENCHMARK_PATH.parent.mkdir(parents=True, exist_ok=True)
+    merged.to_csv(BENCHMARK_PATH, index=False, encoding="utf-8-sig")
 
 
 def _benchmark_history(nav_dates: list[str]) -> dict:
@@ -62,10 +112,7 @@ def _benchmark_history(nav_dates: list[str]) -> dict:
     if not required.issubset(benchmark.columns):
         return result
     benchmark = benchmark.copy()
-    raw_dates = benchmark["trade_date"].astype(str).str.strip()
-    normalized_dates = pd.to_datetime(raw_dates, format="%Y%m%d", errors="coerce")
-    normalized_dates = normalized_dates.fillna(pd.to_datetime(raw_dates, errors="coerce"))
-    benchmark["trade_date"] = normalized_dates.dt.strftime("%Y-%m-%d")
+    benchmark["trade_date"] = _normalize_benchmark_dates(benchmark["trade_date"])
     benchmark["close"] = pd.to_numeric(benchmark["close"], errors="coerce")
     benchmark = benchmark[benchmark["close"].gt(0)].drop_duplicates("trade_date", keep="last")
     by_date = benchmark.set_index("trade_date")["close"]
@@ -609,7 +656,9 @@ def export_portfolio_site_data(output_dir: Path, destination: Path) -> Path:
     nav_frame = pd.read_csv(nav_path) if nav_path.exists() else pd.DataFrame()
     nav_history = nav_frame.to_dict("records")
     latest_nav = nav_frame.iloc[-1] if not nav_frame.empty else pd.Series(dtype=float)
-    benchmark = _benchmark_history(nav_frame["date"].astype(str).tolist() if not nav_frame.empty else [])
+    nav_dates = nav_frame["date"].astype(str).tolist() if not nav_frame.empty else []
+    _refresh_benchmark_cache(nav_dates)
+    benchmark = _benchmark_history(nav_dates)
     data = {
         "asOf": str(summary["as_of_date"]),
         "returnDate": str(nav_frame.iloc[-1]["date"]) if not nav_frame.empty else str(summary["as_of_date"]),
