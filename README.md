@@ -216,26 +216,6 @@ python3 scripts/check_public_release.py
 - 公开前运行 `python3 scripts/check_public_release.py`；
 - 网站只展示只读策略快照，不包含Token，也不连接个人电脑或券商账户。
 
-## 关于历史回测代码
-
-仓库保留了一部分早期周期轮动、CPPI和卖出制动研究代码，用于展示项目演化过程。早期回测曾存在时点边界和前视风险，现有结果没有完成独立的逐字段可得日审计，因此：
-
-- 不把旧回测收益、Sharpe或最大回撤作为当前策略成绩；
-- 不用旧回测决定当前公司是否入选；
-- 不保证旧研究脚本可直接复现或适合实盘；
-- 任何重新发布的回测都必须完成point-in-time数据审计、下一交易日执行、退市样本处理、交易成本和缺失数据检查。
-
-详情见 [docs/LEGACY_RESEARCH_NOTICE.md](docs/LEGACY_RESEARCH_NOTICE.md)。
-
-下面的图只用于说明早期研究代码曾经观察过的仓位与事件，不是当前前瞻组合的业绩承诺，也不是当前选股依据：
-
-<p align="center">
-  <img src="docs/assets/exposure_weights.png" alt="早期研究中的组合暴露诊断图" width="820">
-</p>
-
-<p align="center">
-  <img src="docs/assets/nav_attribution_events.png" alt="早期研究中的净值与事件诊断图" width="820">
-</p>
 
 ## 开源协作
 
