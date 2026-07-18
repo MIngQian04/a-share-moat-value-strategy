@@ -2,6 +2,7 @@ import pandas as pd
 import pytest
 
 from selection.future_demand import decision_status, research_tier, score_future_thesis, valuation_gate
+from scripts.run_future_demand_screen import _quarterly_profit_growth
 
 
 def test_competition_penalty_lowers_future_thesis_score():
@@ -30,3 +31,15 @@ def test_value_supported_candidate_still_waits_without_volume_confirmation():
                          "dcf_margin_of_safety": 0.1, "valuation_gate": "REASONABLE",
                          "timing_status": "BOTTOM_HOLD_NO_ADD"}])
     assert decision_status(row).iloc[0] == "VALUE_VERIFIED_WAIT_TIMING"
+
+
+def test_two_reported_quarters_drive_profit_growth_average():
+    income = pd.DataFrame([
+        {"end_date": "20250331", "ann_date": "20250430", "n_income_attr_p": 100},
+        {"end_date": "20260331", "ann_date": "20260430", "n_income_attr_p": 108},
+        {"end_date": "20250630", "ann_date": "20250730", "n_income_attr_p": 200},
+        {"end_date": "20260630", "ann_date": "20260710", "n_income_attr_p": 220},
+    ])
+    result = _quarterly_profit_growth(income, "2026-07-17")
+    assert result["profit_growth_quarters"] == 2
+    assert abs(result["profit_growth_avg"] - .09) < 1e-9

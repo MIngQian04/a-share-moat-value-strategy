@@ -4,6 +4,10 @@ anchor_max_names: 6
 anchor_max_weight: 0.15
 anchor_industry_cap: 0.20
 anchor_economic_factor_cap: 0.20
+anchor_sticky: true
+anchor_entry_weight: 0.025
+anchor_reduction_step: 0.025
+anchor_min_weight: 0.025
 anchor_min_dividend_yield: 2.5
 anchor_min_owner_earnings_yield: 0.03
 anchor_max_net_debt_to_owner_earnings: 6.0
@@ -23,6 +27,13 @@ anchor_min_fcf_conversion: 0.50
 anchor_max_dividend_payout_proxy: 1.10
 anchor_max_subindustry_market_cap_rank: 3
 anchor_require_moat_proxy: true
+anchor_require_dcf_base: true
+manual_anchor_overrides:
+  - ts_code: 000786.SZ
+    name: 北新建材
+    target_weight: 0.10
+    effective_date: 2026-07-17
+    reason: 人工研究决定：房地产下行暴露尚未充分缓解，主动将北新建材由15%降至10%，释放的5%保留为现金；这不是护城河失效或自动清仓。
 anchor_min_moat_proxy_score: 50
 anchor_brand_min_gross_margin: 0.30
 anchor_brand_min_roe: 0.15
@@ -46,9 +57,14 @@ anchor_excluded_subindustries:
   - 航运
 future_total_cap: 0.25
 cash_floor: 0.10
+dcf_base_discount_rate: 0.10
+dcf_sensitivity_step: 0.01
 option_seed_weight: 0.025
 option_seed_target_min: 0.075
 option_seed_total_cap: 0.10
+seed_valuation_premium_factor: 0.80
+seed_loss_to_profit_premium_factor: 1.00
+seed_valuation_warning_days: 1
 confirmed_build_weight: 0.05
 promoted_core_weight: 0.075
 single_theme_cap: 0.15

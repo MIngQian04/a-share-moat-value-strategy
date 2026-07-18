@@ -14,8 +14,11 @@ TRADING_DAYS = 252
 DIVIDEND_EVENTS_PATH = PROJECT_ROOT / "data/processed/portfolio/dividend_events.csv"
 MOAT_REGISTRY_PATH = PROJECT_ROOT / "config/moat-thesis-registry.csv"
 MOAT_EVIDENCE_PATH = PROJECT_ROOT / "config/moat-evidence-ledger.csv"
+HUMAN_MOAT_REVIEW_PATH = PROJECT_ROOT / "config/moat-human-review.csv"
 MOAT_ALERTS_PATH = PROJECT_ROOT / "outputs/barbell-strategy/moat_radar_alerts.csv"
 MOAT_HEALTH_PATH = PROJECT_ROOT / "outputs/barbell-strategy/moat_radar_health.csv"
+VALUATION_WARNINGS_PATH = PROJECT_ROOT / "outputs/barbell-strategy/future_valuation_warnings.csv"
+VALUATION_REPAIR_BRIEFS_PATH = PROJECT_ROOT / "config/valuation-repair-briefs.json"
 DIVIDEND_LEDGER_COLUMNS = [
     "event_id", "ts_code", "name", "ex_date", "pay_date", "cash_div_per_share",
     "entitlement_per_unit", "status", "paid_date", "reinvest_date",
@@ -27,8 +30,99 @@ NAV_DIVIDEND_COLUMNS = [
 ]
 
 
+def _allocation_change_reason(change_type: str, bucket: str, detail: str = "") -> str:
+    if detail and ("DCF" in detail or "估值" in detail):
+        return detail
+    if bucket == "FUTURE":
+        if change_type == "退出":
+            return "当前未来产业证据或时点门槛未达到入选要求，回到观察状态并把预算留在现金；不等于自动判定产业逻辑失效。"
+        return "未来产业小种子仍有政策、需求、价值和现金收益证据支持，但里程碑尚未满足晋级条件，因此只保留阶梯起点仓位。"
+    if change_type == "新增":
+        return "本轮稳定锚重筛选中通过细分行业地位、护城河代理和现金收益质量等机械门槛，因此进入目标组合；护城河原始证据仍需人工核验。"
+    if change_type == "退出":
+        return "本轮稳定锚重筛选与经济因子分散后不再占用目标名额，目标权重归零；这是组合门槛结果，不等于自动判定护城河失效。"
+    return "通过门槛的标的按总锚仓、现金比例和经济因子分散约束重新归一化，因此目标权重被上调或下调；不是按当日价格追涨杀跌。"
+
+
 def _number(value, default=0.0):
     return default if pd.isna(value) else float(value)
+
+
+def _load_human_moat_review() -> dict[str, bool]:
+    """Load the explicit human yes/no review status; missing rows stay false."""
+    if not HUMAN_MOAT_REVIEW_PATH.exists():
+        return {}
+    review = pd.read_csv(HUMAN_MOAT_REVIEW_PATH)
+    if "ts_code" not in review or "confirmed" not in review:
+        return {}
+    values = review[["ts_code", "confirmed"]].copy()
+    values["ts_code"] = values["ts_code"].astype(str)
+    values["confirmed"] = values["confirmed"].astype(str).str.strip().str.lower().isin(
+        {"true", "yes", "y", "1", "是", "已确认"}
+    )
+    return values.drop_duplicates("ts_code", keep="last").set_index("ts_code")["confirmed"].to_dict()
+
+
+def _load_valuation_repair_briefs() -> dict:
+    if not VALUATION_REPAIR_BRIEFS_PATH.exists():
+        return {}
+    try:
+        return json.loads(VALUATION_REPAIR_BRIEFS_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _valuation_repair_brief(code: str, detail: pd.Series, briefs: dict) -> dict:
+    """Return a review aid; it is never an automatic moat or allocation decision."""
+    configured = dict(briefs.get(code, {}))
+    current_price = _number(detail.get("close"))
+    base_value = _number(detail.get("dcf_base_value_per_share"), default=float("nan"))
+    margin = _number(detail.get("dcf_base_margin_of_safety"), default=float("nan"))
+    if pd.isna(margin) and current_price > 0 and pd.notna(base_value):
+        margin = base_value / current_price - 1
+    configured.setdefault("asOf", "")
+    configured.setdefault("generatedBy", "本地AI研究辅助：基于当前缓存财务、DCF和公开资料整理")
+    configured.setdefault("generatedByEn", "Local AI research aid: current cached financials, DCF and public information")
+    configured.setdefault("undervaluationReasons", [])
+    configured.setdefault("repairConditions", [])
+    configured.setdefault("failureSignals", [])
+    configured.setdefault("institutionReferences", [])
+    configured["currentPrice"] = current_price
+    configured["baseDcfValuePerShare"] = None if pd.isna(base_value) else base_value
+    configured["baseDcfMargin"] = None if pd.isna(margin) else margin
+    optimistic_value = _number(detail.get("dcf_optimistic_value_per_share"), default=float("nan"))
+    configured["optimisticDcfValuePerShare"] = None if pd.isna(optimistic_value) else optimistic_value
+    reference_targets = [
+        _number(reference.get("targetPrice"), default=float("nan"))
+        for reference in configured.get("institutionReferences", [])
+    ]
+    reference_targets = [target for target in reference_targets if pd.notna(target) and target > 0]
+    lowest_reference = min(reference_targets) if reference_targets else float("nan")
+    configured["institutionReferencePrice"] = None if pd.isna(lowest_reference) else lowest_reference
+    configured["institutionReferenceAboveOptimistic"] = bool(
+        reference_targets and pd.notna(optimistic_value) and lowest_reference > optimistic_value
+    )
+    configured["valuationRule"] = "HOLD" if configured["institutionReferenceAboveOptimistic"] else "REVIEW"
+    configured.setdefault("disclaimer", "这是辅助研究，不是自动买卖信号；机构目标价是公开预测，需结合发布日期、货币和假设自行判断。")
+    configured.setdefault("disclaimerEn", "This is a research aid, not an automatic trading signal; institution targets are public forecasts and should be assessed with their dates, currencies and assumptions.")
+    return configured
+
+
+def _dcf_valuation(detail: pd.Series) -> dict | None:
+    """Expose the five discount-rate cases without changing the base gate."""
+    cases = {}
+    for scenario in ["very_optimistic", "optimistic", "base", "cautious", "very_pessimistic"]:
+        rate = detail.get(f"dcf_{scenario}_discount_rate")
+        value = detail.get(f"dcf_{scenario}_value_per_share")
+        margin = detail.get(f"dcf_{scenario}_margin_of_safety")
+        if pd.isna(rate) and pd.isna(value) and pd.isna(margin):
+            continue
+        cases[scenario] = {
+            "discountRate": _number(rate),
+            "valuePerShare": _number(value),
+            "marginOfSafety": _number(margin),
+        }
+    return cases or None
 
 
 def _skew_label(value: float) -> str:
@@ -71,7 +165,7 @@ def _distribution_metrics(returns: pd.Series) -> dict:
 
 
 def _portfolio_distribution(portfolio: pd.DataFrame) -> tuple[dict[str, dict], dict, dict[str, float]]:
-    """Describe trailing return distributions from adjusted closes."""
+    """Describe trailing return distributions for the currently active holdings."""
     close = pd.read_parquet(PROJECT_ROOT / "data/processed/research/close.parquet")
     codes = portfolio["ts_code"].astype(str).tolist()
     available = [code for code in codes if code in close.columns]
@@ -94,7 +188,7 @@ def _portfolio_distribution(portfolio: pd.DataFrame) -> tuple[dict[str, dict], d
     summary.update({
         "periodStart": str(aligned.index.min().date()) if not aligned.empty else "",
         "periodEnd": str(aligned.index.max().date()) if not aligned.empty else "",
-        "method": "当前目标仓位的近252个共同交易日；偏度描述方向，峰度为超额峰度并描述极端波动频率",
+        "method": "当日生效仓位的近252个共同交易日；偏度描述方向，峰度为超额峰度并描述极端波动频率",
     })
     return stock_distribution, summary, latest_returns
 
@@ -133,17 +227,25 @@ def _prepare_dividend_ledger(path: Path, as_of: str) -> pd.DataFrame:
 
 
 def update_portfolio_nav_history(output_dir: Path, daily_basic: pd.DataFrame) -> None:
-    """Append an idempotent close-to-close total-return NAV observation.
+    """Append an idempotent prior-target close-to-close total-return observation.
 
     Raw close returns are augmented on the ex-date by Tushare's after-tax cash
     dividend and stock-dividend ratios. Cash entitlements are tracked through
     receivable, paid-pending and next-session target-weight reinvestment states.
+    The target published on the previous completed session earns the entire
+    current session; the current post-close target is only queued for the next
+    session and never contributes to today's return.
     """
     portfolio = pd.read_csv(output_dir / "target_portfolio.csv")
     summary = pd.read_csv(output_dir / "portfolio_summary.csv").iloc[0]
     as_of = str(summary["as_of_date"])
     market = daily_basic.drop_duplicates("ts_code").set_index("ts_code")
-    portfolio["close"] = portfolio["ts_code"].map(pd.to_numeric(market["close"], errors="coerce"))
+    close_series = pd.to_numeric(market["close"], errors="coerce") if "close" in market else pd.Series(dtype=float)
+    open_series = pd.to_numeric(market["open"], errors="coerce") if "open" in market else pd.Series(dtype=float)
+    portfolio["close"] = portfolio["ts_code"].map(close_series)
+    # Cached offline snapshots may contain only official closes.  Keep the
+    # execution-proxy field empty rather than treating a close as an open fill.
+    portfolio["open"] = portfolio["ts_code"].map(open_series)
 
     holdings_path = output_dir / "portfolio_holdings_history.csv"
     nav_path = output_dir / "portfolio_nav_history.csv"
@@ -163,27 +265,27 @@ def update_portfolio_nav_history(output_dir: Path, daily_basic: pd.DataFrame) ->
     elif as_of not in nav["date"].astype(str).values:
         previous_date = str(nav.iloc[-1]["date"])
         previous = old_holdings[old_holdings["date"].astype(str).eq(previous_date)].copy()
-        current_prices = pd.to_numeric(previous["ts_code"].map(market["close"]), errors="coerce")
+        current_closes = pd.to_numeric(previous["ts_code"].map(market["close"]), errors="coerce")
         previous_prices = pd.to_numeric(previous["close"], errors="coerce")
-        weights = pd.to_numeric(previous["target_weight"], errors="coerce").fillna(0)
-        valid = current_prices.gt(0) & previous_prices.gt(0)
+        previous_weights = pd.to_numeric(previous["target_weight"], errors="coerce").fillna(0)
+        valid_close_to_close = current_closes.gt(0) & previous_prices.gt(0)
         events_today = dividend_events[dividend_events["ex_date"].eq(as_of)].copy()
         event_cash = events_today.groupby("ts_code")["cash_div"].sum() if not events_today.empty else pd.Series(dtype=float)
         event_stock = events_today.groupby("ts_code")["stk_div"].sum() if not events_today.empty else pd.Series(dtype=float)
         cash_per_share = previous["ts_code"].map(event_cash).fillna(0.0).astype(float)
         stock_per_share = previous["ts_code"].map(event_stock).fillna(0.0).astype(float)
-        price_return = float((weights[valid] * (current_prices[valid] / previous_prices[valid] - 1)).sum())
-        cash_dividend_return = float((weights[valid] * cash_per_share[valid] / previous_prices[valid]).sum())
+        price_return = float((previous_weights[valid_close_to_close] * (current_closes[valid_close_to_close] / previous_prices[valid_close_to_close] - 1)).sum())
+        cash_dividend_return = float((previous_weights[valid_close_to_close] * cash_per_share[valid_close_to_close] / previous_prices[valid_close_to_close]).sum())
         stock_dividend_return = float((
-            weights[valid] * stock_per_share[valid] * current_prices[valid] / previous_prices[valid]
+            previous_weights[valid_close_to_close] * stock_per_share[valid_close_to_close] * current_closes[valid_close_to_close] / previous_prices[valid_close_to_close]
         ).sum())
         daily_return = price_return + cash_dividend_return + stock_dividend_return
-        coverage = float(weights[valid].sum())
+        coverage = float(previous_weights[valid_close_to_close].sum())
         previous_nav = float(nav.iloc[-1]["nav"])
         dividend_cash_per_unit = previous_nav * cash_dividend_return
 
         if not events_today.empty and dividend_cash_per_unit > 0:
-            for _, holding in previous.loc[valid].iterrows():
+            for _, holding in previous.loc[valid_close_to_close].iterrows():
                 code = str(holding["ts_code"])
                 code_events = events_today[events_today["ts_code"].eq(code)]
                 if code_events.empty:
@@ -236,7 +338,7 @@ def update_portfolio_nav_history(output_dir: Path, daily_basic: pd.DataFrame) ->
             "dividend_receivable": dividend_receivable,
         }])], ignore_index=True)
 
-    snapshot = portfolio[["ts_code", "name", "allocation_bucket", "target_weight", "close"]].copy()
+    snapshot = portfolio[["ts_code", "name", "allocation_bucket", "target_weight", "open", "close"]].copy()
     snapshot.insert(0, "date", as_of)
     if not old_holdings.empty:
         old_holdings = old_holdings[~old_holdings["date"].astype(str).eq(as_of)]
@@ -252,95 +354,215 @@ def export_portfolio_site_data(output_dir: Path, destination: Path) -> Path:
     summary = pd.read_csv(output_dir / "portfolio_summary.csv").iloc[0]
     anchors = pd.read_csv(output_dir / "anchor_screen.csv").set_index("ts_code")
     future = pd.read_csv(output_dir / "future_states.csv").set_index("ts_code")
+    valuation_warnings = pd.read_csv(VALUATION_WARNINGS_PATH) if VALUATION_WARNINGS_PATH.exists() else pd.DataFrame()
+    if not valuation_warnings.empty and "status" in valuation_warnings:
+        valuation_warnings = valuation_warnings[valuation_warnings["status"].isin({"WARNING", "EXIT_DUE"})].copy()
     moat_registry = pd.read_csv(MOAT_REGISTRY_PATH)
     moat_evidence = pd.read_csv(MOAT_EVIDENCE_PATH)
+    human_moat_review = _load_human_moat_review()
+    valuation_repair_briefs = _load_valuation_repair_briefs()
     moat_monitor = build_moat_monitor(moat_registry, moat_evidence, str(summary["as_of_date"])).set_index("ts_code")
     moat_alerts = pd.read_csv(MOAT_ALERTS_PATH) if MOAT_ALERTS_PATH.exists() else pd.DataFrame()
     if not moat_alerts.empty:
         moat_alerts = moat_alerts[moat_alerts["review_status"].eq("PENDING_REVIEW")].copy()
     moat_health_frame = pd.read_csv(MOAT_HEALTH_PATH) if MOAT_HEALTH_PATH.exists() else pd.DataFrame()
     moat_health = moat_health_frame.iloc[-1] if not moat_health_frame.empty else pd.Series(dtype=object)
-    stock_distribution, distribution_summary, latest_returns = _portfolio_distribution(portfolio)
 
+    holdings_path = output_dir / "portfolio_holdings_history.csv"
+    history = pd.read_csv(holdings_path) if holdings_path.exists() else pd.DataFrame()
+    previous_date = ""
+    previous_rows = pd.DataFrame()
+    if not history.empty:
+        dates = sorted(history["date"].astype(str).unique())
+        prior_dates = [date for date in dates if date < str(summary["as_of_date"])]
+        if prior_dates:
+            previous_date = prior_dates[-1]
+            previous_rows = history[history["date"].astype(str).eq(previous_date)].copy()
+    active_distribution_portfolio = previous_rows if not previous_rows.empty else portfolio
+    stock_distribution, distribution_summary, latest_returns = _portfolio_distribution(active_distribution_portfolio)
+    export_rows = pd.concat([portfolio, previous_rows], ignore_index=True).drop_duplicates("ts_code", keep="first")
     holdings = []
-    for row in portfolio.to_dict("records"):
+    for row in export_rows.to_dict("records"):
         code = str(row["ts_code"])
         item = {
             "code": code,
             "name": row["name"],
             "bucket": row["allocation_bucket"],
-            "state": row["strategy_state"],
-            "theme": row["theme"],
+            "state": row.get("strategy_state", row.get("allocation_bucket", "")) if pd.notna(row.get("strategy_state", row.get("allocation_bucket", ""))) else "",
+            "theme": row.get("theme", "稳定现金流") if pd.notna(row.get("theme", "稳定现金流")) else "稳定现金流",
             "industry": row.get("l1_name") if pd.notna(row.get("l1_name")) else "未分类",
             "weight": _number(row["target_weight"]),
             "price": 0.0,
-            "dailyReturn": latest_returns[code],
-            "distribution": stock_distribution[code],
+            "dailyReturn": latest_returns.get(code, 0.0),
+            "reason": str(row.get("reason", "")),
+            "humanMoatConfirmed": bool(human_moat_review.get(code, False)),
+            "distribution": stock_distribution.get(code, _distribution_metrics(pd.Series(dtype=float))),
         }
-        if code in moat_monitor.index:
-            moat = moat_monitor.loc[code]
-            company_alerts = moat_alerts[moat_alerts["ts_code"].astype(str).eq(code)].copy() if not moat_alerts.empty else pd.DataFrame()
-            if not company_alerts.empty:
-                company_alerts = company_alerts.sort_values(["alert_date", "alert_level"], ascending=[False, True])
-            latest_alert = company_alerts.iloc[0] if not company_alerts.empty else pd.Series(dtype=object)
-            item["moat"] = {
-                "type": str(moat.get("moat_type", "")),
-                "thesis": str(moat.get("moat_thesis", "")),
-                "replicationBarrier": str(moat.get("replication_barrier", "")),
-                "monitoringSignals": [value for value in str(moat.get("monitoring_signals", "")).split("|") if value],
-                "invalidationSignals": [value for value in str(moat.get("invalidation_signals", "")).split("|") if value],
-                "status": str(moat.get("moat_status", "DRAFT")),
-                "recommendedAction": str(moat.get("recommended_action", "")),
-                "lastReviewDate": str(moat.get("last_review_date", "")),
-                "nextReviewDate": str(moat.get("next_review_date", "")),
-                "supportingEvidenceCount": int(moat.get("supporting_evidence_count", 0)),
-                "cautionEvidenceCount": int(moat.get("caution_evidence_count", 0)),
-                "contradictoryEvidenceCount": int(moat.get("contradictory_evidence_count", 0)),
-                "radar": {
-                    "pendingAlertCount": int(len(company_alerts)),
-                    "highAlertCount": int(company_alerts["alert_level"].eq("HIGH").sum()) if not company_alerts.empty else 0,
-                    "latestAlertDate": str(latest_alert.get("alert_date", "")),
-                    "latestAlertTitle": str(latest_alert.get("title", "")),
-                    "latestAlertSource": str(latest_alert.get("alert_source", "")),
-                },
-            }
+        company_alerts = moat_alerts[moat_alerts["ts_code"].astype(str).eq(code)].copy() if not moat_alerts.empty else pd.DataFrame()
+        if not company_alerts.empty:
+            company_alerts = company_alerts.sort_values(["alert_date", "alert_level"], ascending=[False, True])
+        latest_alert = company_alerts.iloc[0] if not company_alerts.empty else pd.Series(dtype=object)
+        moat = moat_monitor.loc[code] if code in moat_monitor.index else pd.Series(dtype=object)
+        item["moat"] = {
+            "type": str(moat.get("moat_type", "档案待补全")),
+            "thesis": str(moat.get("moat_thesis", "该持仓尚未建立护城河假设；不得据此推断护城河存在。")),
+            "replicationBarrier": str(moat.get("replication_barrier", "需补充可追溯的一手资料后判断。")),
+            "monitoringSignals": [value for value in str(moat.get("monitoring_signals", "等待建立监测指标")).split("|") if value],
+            "invalidationSignals": [value for value in str(moat.get("invalidation_signals", "未建立档案前禁止扩大仓位")).split("|") if value],
+            "status": str(moat.get("moat_status", "DRAFT")),
+            "recommendedAction": str(moat.get("recommended_action", "暂停加仓，先补齐可追溯的一手证据和护城河假设。")),
+            "lastReviewDate": str(moat.get("last_review_date", "")),
+            "nextReviewDate": str(moat.get("next_review_date", "待建立")),
+            "supportingEvidenceCount": int(moat.get("supporting_evidence_count", 0)),
+            "cautionEvidenceCount": int(moat.get("caution_evidence_count", 0)),
+            "contradictoryEvidenceCount": int(moat.get("contradictory_evidence_count", 0)),
+            "radar": {
+                "pendingAlertCount": int(len(company_alerts)),
+                "highAlertCount": int(company_alerts["alert_level"].eq("HIGH").sum()) if not company_alerts.empty else 0,
+                "latestAlertDate": str(latest_alert.get("alert_date", "")),
+                "latestAlertTitle": str(latest_alert.get("title", "")),
+                "latestAlertSource": str(latest_alert.get("alert_source", "")),
+            },
+        }
         if row["allocation_bucket"] == "ANCHOR" and code in anchors.index:
             detail = anchors.loc[code]
             item["price"] = _number(detail.get("close"))
+            item["valuation"] = _dcf_valuation(detail)
             item["metrics"] = {
                 "股息率": f"{_number(detail.get('dv_ratio')):.1f}%",
                 "所有者收益率": f"{_number(detail.get('owner_earnings_yield')):.1%}",
                 "三年ROE": f"{_number(detail.get('normalized_roe')):.1%}",
                 "护城河代理分": f"{_number(detail.get('moat_proxy_score')):.1f}",
             }
+            item["valuationRepair"] = _valuation_repair_brief(code, detail, valuation_repair_briefs)
         elif code in future.index:
             detail = future.loc[code]
             item["price"] = _number(detail.get("close"))
+            item["valuation"] = _dcf_valuation(detail)
             item["metrics"] = {
                 "未来逻辑分": f"{_number(detail.get('future_thesis_score')):.1f}",
                 "DCF安全边际": f"{_number(detail.get('dcf_margin_of_safety')):.1%}",
                 "当前状态": str(detail.get("timing_status", "—")),
             }
+            item["valuationRepair"] = _valuation_repair_brief(code, detail, valuation_repair_briefs)
         holdings.append(item)
 
-    pending = anchors[anchors["anchor_financial_check"].eq("NOT_FETCHED")]
+    next_codes = set(portfolio["ts_code"].astype(str))
+    active_codes = set(previous_rows["ts_code"].astype(str)) if not previous_rows.empty else next_codes
+    by_code = {item["code"]: item for item in holdings}
+    active_holdings = []
+    for code in active_codes:
+        if code not in by_code:
+            continue
+        item = dict(by_code[code])
+        previous_weight = previous_rows.loc[previous_rows["ts_code"].astype(str).eq(code), "target_weight"]
+        if not previous_weight.empty:
+            item["weight"] = _number(previous_weight.iloc[0])
+        item["reason"] = "上一交易日已公布仓位"
+        active_holdings.append(item)
+    next_holdings = [item for item in holdings if item["code"] in next_codes]
+
+    # The visible Today figure must be the published NAV observation, which is
+    # calculated from the prior target using the raw close/dividend ledger. Do
+    # not reconstruct it from the distribution portrait's adjusted closes.
     nav_path = output_dir / "portfolio_nav_history.csv"
+    nav_observations = pd.read_csv(nav_path) if nav_path.exists() else pd.DataFrame()
+    latest_nav_observation = nav_observations.iloc[-1] if not nav_observations.empty else pd.Series(dtype=float)
+    model_daily_return = _number(latest_nav_observation.get("daily_return", 0.0))
+
+    confirmed_active_weight = sum(
+        float(item["weight"]) for item in active_holdings if item["humanMoatConfirmed"]
+    )
+    gray_active_weight = sum(
+        float(item["weight"]) for item in active_holdings if not item["humanMoatConfirmed"]
+    )
+    model_active_return = model_daily_return
+    confirmed_active_return = sum(
+        float(item["weight"]) * float(item["dailyReturn"])
+        for item in active_holdings if item["humanMoatConfirmed"]
+    )
+    gray_active_return = sum(
+        float(item["weight"]) * float(item["dailyReturn"])
+        for item in active_holdings if not item["humanMoatConfirmed"]
+    )
+    human_review_summary = {
+        "confirmedCount": int(sum(item["humanMoatConfirmed"] for item in active_holdings)),
+        "totalCount": len(active_holdings),
+        "confirmedWeight": confirmed_active_weight,
+        "grayWeight": gray_active_weight,
+        "modelDailyReturn": model_active_return,
+        "confirmedDailyReturn": confirmed_active_return if confirmed_active_weight > 0 else None,
+        "grayDailyReturn": gray_active_return if gray_active_weight > 0 else None,
+        "note": "人工护城河判断仅用于观察和预警，不是持仓或收益计算门槛；模型按目标仓位计算全部持仓收益，出现有据可查的不利证据时再触发复核。",
+    }
+    active_cash_weight = max(0.0, 1.0 - sum(float(item["weight"]) for item in active_holdings))
+    changes = []
+    for code in sorted(active_codes | next_codes):
+        old = next((item for item in active_holdings if item["code"] == code), None)
+        new = next((item for item in next_holdings if item["code"] == code), None)
+        old_weight = old["weight"] if old else 0.0
+        new_weight = new["weight"] if new else 0.0
+        if abs(old_weight - new_weight) < 1e-9:
+            continue
+        change_type = "新增" if not old else "退出" if not new else "增仓" if new_weight > old_weight else "减仓"
+        changed_item = new or old
+        detail = str(new.get("reason", "")).strip() if new else ""
+        changes.append({
+            "code": code,
+            "name": (new or old)["name"],
+            "oldWeight": old_weight,
+            "newWeight": new_weight,
+            "changeType": change_type,
+            "reason": detail or _allocation_change_reason(change_type, str(changed_item.get("bucket", "ANCHOR"))),
+            "effect": "仅作为下一交易日目标信号；不会回溯修改今日收益，也不会自动下单。",
+        })
+    valuation_warning_rows = []
+    if not valuation_warnings.empty:
+        for row in valuation_warnings.to_dict("records"):
+            valuation_warning_rows.append({
+                "code": str(row.get("ts_code", "")),
+                "name": str(row.get("name", "")),
+                "status": str(row.get("status", "")),
+                "warningDate": str(row.get("warning_date", "")),
+                "consecutiveDays": int(_number(row.get("consecutive_days", 0))),
+                "dcfMargin": _number(row.get("dcf_margin_of_safety")),
+                "premiumCap": _number(row.get("valuation_premium_cap")),
+                "reason": str(row.get("reason", "")),
+                "effect": "先预警再确认；若下一交易日仍持续高估，只按一档减仓，不因估值单独清仓。",
+            })
+    allocation_change = {
+        "changed": bool(changes or valuation_warning_rows),
+        "activeAsOf": previous_date or str(summary["as_of_date"]),
+        "nextAsOf": str(summary["as_of_date"]),
+        "effectiveLabel": "下一交易日开盘后生效",
+        "marketContext": "本轮没有使用宏观大环境择时信号；变化只由个股筛选/证据状态、锚仓继承纪律、经济因子分散和现金预算约束驱动。",
+        "changes": changes,
+        "valuationWarnings": valuation_warning_rows,
+    }
+    pending = anchors[anchors["anchor_financial_check"].eq("NOT_FETCHED")]
     nav_frame = pd.read_csv(nav_path).tail(60) if nav_path.exists() else pd.DataFrame()
     nav_history = nav_frame.to_dict("records")
     latest_nav = nav_frame.iloc[-1] if not nav_frame.empty else pd.Series(dtype=float)
     data = {
         "asOf": str(summary["as_of_date"]),
+        "returnDate": str(nav_frame.iloc[-1]["date"]) if not nav_frame.empty else str(summary["as_of_date"]),
         "generatedAt": datetime.now().astimezone().isoformat(timespec="seconds"),
         "summary": {
             "anchorWeight": _number(summary["anchor_weight"]),
             "futureWeight": _number(summary["future_weight"]),
             "cashWeight": _number(summary["cash_weight"]),
+            "activeCashWeight": active_cash_weight,
             "universeScanned": int(summary["anchor_universe_scanned"]),
             "financialReviewed": int(summary["anchor_financial_reviewed"]),
             "financialComplete": int(summary["anchor_financial_complete"]),
             "anchorEligible": int(summary["anchor_eligible"]),
         },
-        "holdings": holdings,
+        "activeAsOf": previous_date or str(summary["as_of_date"]),
+        "distributionAsOf": previous_date or str(summary["as_of_date"]),
+        "holdings": active_holdings,
+        "nextHoldings": next_holdings,
+        "humanReview": human_review_summary,
+        "allocationChange": allocation_change,
         "moatRadar": {
             "asOf": str(moat_health.get("as_of_date", summary["as_of_date"])),
             "checkedAt": str(moat_health.get("checked_at", "")),

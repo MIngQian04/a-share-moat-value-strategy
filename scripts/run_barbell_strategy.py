@@ -32,7 +32,8 @@ FIN = Path("data/raw/fundamental")
 
 
 def anchor_financial_checks(watchlist: pd.DataFrame, daily: pd.DataFrame, refresh: bool,
-                            fetch_missing: bool = True) -> pd.DataFrame:
+                            fetch_missing: bool = True, discount_rate: float = 0.10,
+                            discount_rate_step: float = 0.01) -> pd.DataFrame:
     client = TushareClient(data_dir="data/raw", max_retries=2, request_timeout_seconds=8) if refresh or fetch_missing else None
     market = daily.set_index("ts_code")
     rows = []
@@ -68,11 +69,18 @@ def anchor_financial_checks(watchlist: pd.DataFrame, daily: pd.DataFrame, refres
             continue
         row = market.loc[code]
         value = owner_earnings_from_statements(
-            frames[0], frames[1], frames[2], float(row["total_share"]) * 10000.0
+            frames[0], frames[1], frames[2], float(row["total_share"]) * 10000.0,
+            discount_rate=discount_rate, discount_rate_step=discount_rate_step,
         )
         market_cap = float(row["total_mv"]) * 10000.0
         owner_yield = value["normalized_owner_earnings"] / market_cap if market_cap > 0 else float("nan")
         check = "PASS_CASH_EARNINGS" if value["normalized_owner_earnings"] > 0 and value["normalized_fcf"] > 0 else "FAIL_CASH_EARNINGS"
+        close = float(row["close"])
+        for scenario in ["very_optimistic", "optimistic", "base", "cautious", "very_pessimistic"]:
+            scenario_price = value.get(f"dcf_{scenario}_value_per_share")
+            value[f"dcf_{scenario}_margin_of_safety"] = (
+                scenario_price / close - 1 if pd.notna(scenario_price) and close > 0 else float("nan")
+            )
         rows.append({"ts_code": code, **value, "owner_earnings_yield": owner_yield,
                      "anchor_financial_check": check, "financial_error": ""})
     return pd.DataFrame(rows)
@@ -120,6 +128,8 @@ def build_future_research_funnel(states: pd.DataFrame) -> pd.DataFrame:
             return "CONFIRMED_BUILD"
         if row.get("barbell_state") == "OPTION_SEED":
             return "OPTION_SEED"
+        if row.get("barbell_state") == "VALUATION_REDUCTION":
+            return "VALUATION_REDUCTION"
         if row.get("policy_status") != "POLICY_ELIGIBLE":
             return "POLICY_NOT_ELIGIBLE"
         if pd.to_numeric(row.get("future_thesis_score"), errors="coerce") < 72:
@@ -140,6 +150,86 @@ def build_future_research_funnel(states: pd.DataFrame) -> pd.DataFrame:
         ["research_sequence", "barbell_state", "future_thesis_score", "ts_code"],
         ascending=[True, True, False, True],
     )
+
+
+def update_valuation_warning_history(
+    states: pd.DataFrame, previous_warnings: pd.DataFrame, as_of: str, destination: Path,
+) -> pd.DataFrame:
+    """Persist the latest seed valuation warning state for T+1 confirmation."""
+    prior = {}
+    if previous_warnings is not None and not previous_warnings.empty and "ts_code" in previous_warnings:
+        frame = previous_warnings.copy()
+        frame["ts_code"] = frame["ts_code"].astype(str)
+        frame["warning_date"] = frame["warning_date"].astype(str) if "warning_date" in frame else ""
+        prior = frame.drop_duplicates("ts_code", keep="last").set_index("ts_code").to_dict("index")
+    rows = []
+    for _, row in states.iterrows():
+        code = str(row["ts_code"])
+        status = str(row.get("valuation_warning_status", "NONE"))
+        previous = prior.get(code, {})
+        previous_status = str(previous.get("status", ""))
+        previous_date = str(previous.get("warning_date", ""))
+        if status == "WARNING":
+            consecutive = int(previous.get("consecutive_days", 0)) + 1 if previous_status == "WARNING" and previous_date < as_of else 1
+            warning_date = as_of if consecutive == 1 else previous_date
+        elif status == "EXIT_DUE":
+            consecutive = max(int(previous.get("consecutive_days", 1)) + 1, 2)
+            warning_date = previous_date or as_of
+        else:
+            consecutive = 0
+            warning_date = ""
+            status = "CLEARED" if previous_status in {"WARNING", "EXIT_DUE"} else "NONE"
+        rows.append({
+            "ts_code": code, "name": row.get("name", ""), "as_of_date": as_of,
+            "warning_date": warning_date, "consecutive_days": consecutive,
+            "status": status, "dcf_margin_of_safety": row.get("dcf_margin_of_safety"),
+            "valuation_premium_cap": row.get("valuation_premium_cap"),
+            "reason": row.get("valuation_warning_reason", ""),
+        })
+    result = pd.DataFrame(rows)
+    result.to_csv(destination, index=False, encoding="utf-8-sig")
+    return result
+
+
+def update_anchor_valuation_warning_history(
+    anchors: pd.DataFrame, previous_warnings: pd.DataFrame, as_of: str, destination: Path,
+) -> pd.DataFrame:
+    """Persist one-session warnings for anchors priced above the optimistic DCF."""
+    prior = {}
+    if previous_warnings is not None and not previous_warnings.empty and "ts_code" in previous_warnings:
+        frame = previous_warnings.copy()
+        frame["ts_code"] = frame["ts_code"].astype(str)
+        frame["warning_date"] = frame["warning_date"].astype(str) if "warning_date" in frame else ""
+        prior = frame.drop_duplicates("ts_code", keep="last").set_index("ts_code").to_dict("index")
+    rows = []
+    for _, row in anchors.iterrows():
+        code = str(row["ts_code"])
+        previous = prior.get(code, {})
+        previous_status = str(previous.get("status", ""))
+        previous_date = str(previous.get("warning_date", ""))
+        over_optimistic = str(row.get("anchor_dcf_status", "NOT_FETCHED")) == "OVER_OPTIMISTIC"
+        if over_optimistic:
+            consecutive = int(previous.get("consecutive_days", 0)) + 1 if previous_status == "WARNING" and previous_date < as_of else 1
+            warning_date = as_of if consecutive == 1 else previous_date
+            status = "WARNING"
+        else:
+            consecutive = 0
+            warning_date = ""
+            status = "CLEARED" if previous_status == "WARNING" else "NONE"
+        rows.append({
+            "ts_code": code,
+            "name": row.get("name", ""),
+            "as_of_date": as_of,
+            "warning_date": warning_date,
+            "consecutive_days": consecutive,
+            "status": status,
+            "anchor_dcf_status": row.get("anchor_dcf_status", "NOT_FETCHED"),
+            "dcf_base_margin_of_safety": row.get("dcf_base_margin_of_safety"),
+            "dcf_optimistic_margin_of_safety": row.get("dcf_optimistic_margin_of_safety"),
+        })
+    result = pd.DataFrame(rows)
+    result.to_csv(destination, index=False, encoding="utf-8-sig")
+    return result
 
 
 def write_report(portfolio: pd.DataFrame, states: pd.DataFrame, anchors: pd.DataFrame,
@@ -216,6 +306,8 @@ def write_report(portfolio: pd.DataFrame, states: pd.DataFrame, anchors: pd.Data
 
 锚仓先通过全A股财务门，再要求细分行业市值位次与“品牌溢价/规模成本领先”代理同时成立。长期毛利率、ROE、收入韧性和现金转化用于验证溢价是否真的转化为利润；高股息本身不再视为护城河。代理只能缩小研究范围，不能证明消费者心智、独占资源或真实市场份额，因此当前组合中的锚仓统一标记为 `PROXY_REQUIRES_PRIMARY_EVIDENCE`。
 
+新锚仓必须通过10%基准DCF安全边际。已有锚仓若基准估值略高但仍处于乐观DCF情景内，会保留原仓位并暂停加仓；若连续高于乐观情景，先预警一个交易日，再按2.5个百分点减仓，估值本身不直接清仓。
+
 未来产业候选还必须通过国家规划门。政策方向来自正式《十五五规划纲要》；“六张网”是依据第七章派生的统一研究口径，并非原文中的固定总称。
 
 ## 当前目标仓位
@@ -257,6 +349,10 @@ def write_report(portfolio: pd.DataFrame, states: pd.DataFrame, anchors: pd.Data
 {anchor_table}
 
 系统先扫描全部在市A股，再按上市年限、ST/退市风险、规模、股息、PE/PB及行业模型适用性建立财务短名单。银行、非银金融、公用事业、电信运营商和强周期资源行业不套用本工业公司模型。自动锚除原有所有者收益、ROE、FCF、负债和估值门外，还要求：收入长期复合增速不低于-3%、毛利率波动不高于0.15、最新毛利率相对三年中位数下滑不超过3个百分点、FCF/所有者收益不低于0.50、分红/所有者收益不高于1.10、细分行业市值位次不低于前三，并通过品牌溢价或规模成本领先代理。单家公司不超过15%，单一申万行业和单一经济因子均不超过20%，最多6家公司。上表只展示得分最高的30家公司，完整结果保存在CSV中。
+
+### 锚仓调仓纪律
+
+正常运行继承上一交易日已经公布的锚仓名称和仓位；每日评分的小幅变化不能替换既有锚仓。筛选状态需要复核时，只按 {float(policy.get('anchor_reduction_step', 0.025)):.1%} 的阶梯减仓，最低保留 {float(policy.get('anchor_min_weight', 0.025)):.1%}，不自动清仓。新锚仓只有在现金和名额都充足时，才以 {float(policy.get('anchor_entry_weight', 0.025)):.1%} 观察仓进入，不得挤出既有锚仓。本轮没有使用宏观大环境择时信号；调仓只由个股门槛/证据状态、分散约束和现金预算驱动。
 
 ## 策略结构
 
@@ -338,10 +434,30 @@ def main() -> None:
     evidence = pd.read_csv("config/future-evidence-ledger.csv")
     as_of_raw = str(int(pd.to_numeric(daily["trade_date"], errors="coerce").max()))
     as_of = f"{as_of_raw[:4]}-{as_of_raw[4:6]}-{as_of_raw[6:]}"
+    previous_portfolio = pd.DataFrame()
+    holdings_history = OUT / "portfolio_holdings_history.csv"
+    if holdings_history.exists():
+        history = pd.read_csv(holdings_history)
+        if not history.empty and "date" in history and "ts_code" in history:
+            history["date"] = history["date"].astype(str)
+            prior_dates = sorted(date for date in history["date"].unique() if date < as_of)
+            if prior_dates:
+                previous_portfolio = history[history["date"].eq(prior_dates[-1])].copy()
+    warning_path = OUT / "future_valuation_warnings.csv"
+    previous_warnings = pd.read_csv(warning_path) if warning_path.exists() else pd.DataFrame()
+    anchor_warning_path = OUT / "anchor_valuation_warnings.csv"
+    previous_anchor_warnings = pd.read_csv(anchor_warning_path) if anchor_warning_path.exists() else pd.DataFrame()
     evidence_readiness = build_evidence_readiness(registry, evidence, as_of)
     evidence_readiness.to_csv(OUT / "future_evidence_readiness.csv", index=False, encoding="utf-8-sig")
-    states = classify_future_states(future, milestones, evidence_readiness)
+    states = classify_future_states(
+        future, milestones, evidence_readiness,
+        previous_portfolio=previous_portfolio,
+        valuation_warnings=previous_warnings,
+        as_of=as_of,
+        policy=policy,
+    )
     states = build_future_research_funnel(states)
+    update_valuation_warning_history(states, previous_warnings, as_of, warning_path)
     states.to_csv(OUT / "future_states.csv", index=False, encoding="utf-8-sig")
     states.to_csv(OUT / "future_seed_research_funnel.csv", index=False, encoding="utf-8-sig")
 
@@ -351,12 +467,22 @@ def main() -> None:
     anchor_funnel.to_csv(OUT / "full_market_anchor_funnel.csv", index=False, encoding="utf-8-sig")
     daily = daily.merge(members[["ts_code", "l1_name"]].drop_duplicates("ts_code"), on="ts_code", how="left")
     anchor_financials = anchor_financial_checks(
-        watchlist, daily, args.refresh_financials, fetch_missing=not args.offline
+        watchlist, daily, args.refresh_financials, fetch_missing=not args.offline,
+        discount_rate=float(policy.get("dcf_base_discount_rate", 0.10)),
+        discount_rate_step=float(policy.get("dcf_sensitivity_step", 0.01)),
     )
     anchors = anchor_signal_table(daily, watchlist, anchor_financials, policy)
     anchors.to_csv(OUT / "anchor_screen.csv", index=False, encoding="utf-8-sig")
+    update_anchor_valuation_warning_history(anchors, previous_anchor_warnings, as_of, anchor_warning_path)
 
-    portfolio, summary = build_barbell_weights(anchors, states, policy)
+    portfolio, summary = build_barbell_weights(
+        anchors,
+        states,
+        policy,
+        previous_portfolio=previous_portfolio,
+        anchor_valuation_warnings=previous_anchor_warnings,
+        as_of=as_of,
+    )
     selected_anchor_codes = set(
         portfolio.loc[portfolio["allocation_bucket"].eq("ANCHOR"), "ts_code"].astype(str)
     )

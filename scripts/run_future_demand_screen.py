@@ -8,6 +8,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import yaml
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
@@ -75,7 +76,61 @@ def get_statements(client: TushareClient | None, code: str, refresh: bool) -> tu
     return tuple(frames)
 
 
-def financial_checks(screen: pd.DataFrame, refresh: bool) -> pd.DataFrame:
+def _quarterly_profit_growth(income: pd.DataFrame, as_of: str | None = None) -> dict:
+    """Return the average YoY net-profit growth for the two latest reported quarters.
+
+    Loss-to-profit transitions use the improvement relative to the prior loss
+    magnitude instead of an unstable percentage with a negative denominator.
+    """
+    if income is None or income.empty or "end_date" not in income:
+        return {"profit_growth_q1": np.nan, "profit_growth_q2": np.nan,
+                "profit_growth_avg": np.nan, "profit_loss_to_profit": False,
+                "profit_growth_quarters": 0}
+    q = income.copy()
+    q["end_date"] = q["end_date"].astype(str).str.replace("-", "", regex=False)
+    if "ann_date" in q:
+        q["ann_date"] = q["ann_date"].fillna("").astype(str).str.replace("-", "", regex=False)
+        if as_of:
+            q = q[(q["ann_date"].eq("") | q["ann_date"].le(str(as_of).replace("-", "")))]
+        q = q.sort_values(["end_date", "ann_date"]).drop_duplicates("end_date", keep="last")
+    q = q[q["end_date"].str.match(r"^\d{8}$")].copy()
+    profit_col = "n_income_attr_p" if "n_income_attr_p" in q else "n_income"
+    if profit_col not in q:
+        return {"profit_growth_q1": np.nan, "profit_growth_q2": np.nan,
+                "profit_growth_avg": np.nan, "profit_loss_to_profit": False,
+                "profit_growth_quarters": 0}
+    q["profit"] = pd.to_numeric(q[profit_col], errors="coerce")
+    q = q.dropna(subset=["profit"]).set_index("end_date")
+    growth = []
+    transition = False
+    for period in sorted(q.index)[-2:]:
+        prior = f"{int(period[:4]) - 1}{period[4:]}"
+        if prior not in q.index:
+            continue
+        current_profit = float(q.loc[period, "profit"])
+        prior_profit = float(q.loc[prior, "profit"])
+        if prior_profit > 0:
+            rate = current_profit / prior_profit - 1.0
+        elif current_profit > 0 and prior_profit < 0:
+            rate = (current_profit - prior_profit) / abs(prior_profit)
+            transition = True
+        elif prior_profit < 0:
+            rate = (current_profit - prior_profit) / abs(prior_profit)
+        else:
+            rate = np.nan
+        growth.append(rate)
+    growth = growth[-2:]
+    return {
+        "profit_growth_q1": growth[-1] if len(growth) >= 1 else np.nan,
+        "profit_growth_q2": growth[-2] if len(growth) >= 2 else np.nan,
+        "profit_growth_avg": float(np.mean(growth)) if growth else np.nan,
+        "profit_loss_to_profit": transition,
+        "profit_growth_quarters": len(growth),
+    }
+
+
+def financial_checks(screen: pd.DataFrame, refresh: bool, as_of: str | None = None,
+                     discount_rate: float = 0.10, discount_rate_step: float = 0.01) -> pd.DataFrame:
     client = TushareClient(data_dir="data/raw") if refresh else None
     rows = []
     for _, row in screen.iterrows():
@@ -85,21 +140,37 @@ def financial_checks(screen: pd.DataFrame, refresh: bool) -> pd.DataFrame:
                 rows.append({"ts_code": row["ts_code"], "financial_check": "NOT_FETCHED"})
                 continue
             value = owner_earnings_from_statements(
-                income, cashflow, balance, float(row["total_share"]) * 10000.0
+                income, cashflow, balance, float(row["total_share"]) * 10000.0,
+                discount_rate=discount_rate, discount_rate_step=discount_rate_step,
             )
             market_cap = float(row["total_mv"]) * 10000.0
             owner_yield = value["normalized_owner_earnings"] / market_cap if market_cap > 0 else np.nan
             dcf_price = value["owner_earnings_value_per_share"]
             margin = dcf_price / float(row["close"]) - 1 if pd.notna(dcf_price) and row["close"] > 0 else np.nan
+            for scenario in ["very_optimistic", "optimistic", "base", "cautious", "very_pessimistic"]:
+                scenario_price = value.get(f"dcf_{scenario}_value_per_share")
+                value[f"dcf_{scenario}_margin_of_safety"] = (
+                    scenario_price / float(row["close"]) - 1
+                    if pd.notna(scenario_price) and row["close"] > 0 else np.nan
+                )
             check = "PASS_SURVIVAL" if value["normalized_owner_earnings"] > 0 and value["normalized_fcf"] > 0 else "FAIL_CASH_EARNINGS"
-            rows.append({"ts_code": row["ts_code"], **value, "owner_earnings_yield": owner_yield,
+            growth = _quarterly_profit_growth(income, as_of)
+            rows.append({"ts_code": row["ts_code"], **value, **growth,
+                         "owner_earnings_yield": owner_yield,
                          "dcf_margin_of_safety": margin, "financial_check": check})
         except Exception as exc:
             rows.append({"ts_code": row["ts_code"], "financial_check": f"ERROR: {str(exc)[:120]}"})
     columns = ["ts_code", "financial_years", "normalized_owner_earnings", "normalized_fcf",
                "net_cash", "owner_earnings_value_per_share", "owner_earnings_yield",
-               "dcf_margin_of_safety", "financial_check"]
-    return pd.DataFrame(rows).reindex(columns=columns)
+               "dcf_margin_of_safety", "profit_growth_q1", "profit_growth_q2",
+               "profit_growth_avg", "profit_loss_to_profit", "profit_growth_quarters",
+               "financial_check"]
+    sensitivity_columns = [
+        f"dcf_{scenario}_{field}"
+        for scenario in ["very_optimistic", "optimistic", "base", "cautious", "very_pessimistic"]
+        for field in ["discount_rate", "value_per_share", "margin_of_safety"]
+    ]
+    return pd.DataFrame(rows).reindex(columns=columns + sensitivity_columns)
 
 
 def write_report(result: pd.DataFrame, as_of: str) -> None:
@@ -156,6 +227,7 @@ def write_report(result: pd.DataFrame, as_of: str) -> None:
 - 未来逻辑分来自人工研究假设（1—5分），重点是需求确定性、瓶颈强度、价值捕获和上市公司业务暴露；竞争与替代风险扣分。
 - PE/PB/PS和所有者收益只作约束和否决项，不参与未来逻辑分，避免用滞后数据替代产业判断。
 - DCF采用历史三年所有者收益中位数和保守增长率，只适合检验当前利润是否足以支撑价格，不能给尚未兑现的新业务定价。
+- 种子仓首次入场使用严格DCF底线；已持有种子仓可按最近两个已公布季度净利润增长率平均值获得短期预期溢价带，正常盈利公司允许该平均增长率的80%，由亏转盈允许100%。超过溢价带先预警并保留一个交易日，确认后只按一档减仓；估值单独不能让大于2.5%的仓位直接清零。
 - 公司业务映射和人工评分需要随年报、订单、客户结构及技术路线变化持续复核。
 
 ## 产业依据
@@ -171,6 +243,7 @@ def main() -> None:
     parser.add_argument("--refresh-financials", action="store_true", help="download statements for every thesis candidate")
     args = parser.parse_args()
     OUT.mkdir(parents=True, exist_ok=True)
+    policy = yaml.safe_load(Path("config/barbell-policy.yaml").read_text(encoding="utf-8"))
 
     hypotheses = pd.read_csv("config/future-demand-candidates.csv")
     hypotheses = score_future_thesis(hypotheses)
@@ -189,15 +262,21 @@ def main() -> None:
         result = result.merge(cycle, on="l1_name", how="left")
     result["valuation_gate"] = valuation_gate(result)
     result["research_tier"] = research_tier(result)
-    financial = financial_checks(result, args.refresh_financials)
+    as_of_raw = str(int(pd.to_numeric(result["trade_date"], errors="coerce").max()))
+    as_of = f"{as_of_raw[:4]}-{as_of_raw[4:6]}-{as_of_raw[6:]}"
+    financial = financial_checks(
+        result,
+        args.refresh_financials,
+        as_of,
+        discount_rate=float(policy.get("dcf_base_discount_rate", 0.10)),
+        discount_rate_step=float(policy.get("dcf_sensitivity_step", 0.01)),
+    )
     result = result.merge(financial, on="ts_code", how="left")
     result["decision_status"] = decision_status(result)
     order = pd.Categorical(result["research_tier"],
                            ["CORE_RESEARCH", "OPTIONALITY_WATCH", "SECONDARY_WATCH", "PASS_FOR_NOW"], ordered=True)
     result = result.assign(_order=order).sort_values(["_order", "future_thesis_score"], ascending=[True, False]).drop(columns="_order")
     result.to_csv(OUT / "future_demand_candidates.csv", index=False, encoding="utf-8-sig")
-    as_of = str(int(pd.to_numeric(result["trade_date"], errors="coerce").max()))
-    as_of = f"{as_of[:4]}-{as_of[4:6]}-{as_of[6:]}"
     write_report(result, as_of)
     print(result[["ts_code", "name", "chain_segment", "future_thesis_score", "valuation_gate",
                   "timing_status", "research_tier"]].to_string(index=False))

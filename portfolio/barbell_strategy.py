@@ -170,6 +170,22 @@ def anchor_signal_table(daily_basic: pd.DataFrame, watchlist: pd.DataFrame,
     margin_erosion_pass = gross_margin_delta.ge(min_gross_margin_delta) if np.isfinite(min_gross_margin_delta) else pd.Series(True, index=out.index)
     conversion_pass = fcf_conversion.ge(min_fcf_conversion) if np.isfinite(min_fcf_conversion) else pd.Series(True, index=out.index)
     payout_pass = out["dividend_payout_proxy"].le(max_payout_proxy) if np.isfinite(max_payout_proxy) else pd.Series(True, index=out.index)
+    dcf_base_margin = numeric("dcf_base_margin_of_safety")
+    dcf_optimistic_margin = numeric("dcf_optimistic_margin_of_safety")
+    dcf_data_present = "dcf_base_margin_of_safety" in out.columns or "dcf_optimistic_margin_of_safety" in out.columns
+    dcf_base_pass = dcf_base_margin.ge(0)
+    dcf_optimistic_pass = dcf_optimistic_margin.ge(0)
+    dcf_available = dcf_base_margin.notna() & dcf_optimistic_margin.notna()
+    out["anchor_dcf_status"] = np.select(
+        [~dcf_available, dcf_base_pass, dcf_optimistic_pass],
+        ["NOT_FETCHED", "BASE_SUPPORTED", "PREMIUM_WITHIN_OPTIMISTIC"],
+        default="OVER_OPTIMISTIC",
+    )
+    out["anchor_dcf_data_present"] = dcf_data_present
+    # The production policy turns this on for new anchors. Keeping it
+    # explicit means old lightweight callers do not silently change behavior.
+    require_dcf_base = bool(policy.get("anchor_require_dcf_base", False))
+    dcf_entry_pass = dcf_base_pass if require_dcf_base else pd.Series(True, index=out.index)
     position_pass = subindustry_rank.le(max_subindustry_rank) if np.isfinite(max_subindustry_rank) else pd.Series(True, index=out.index)
     brand_pricing_power = (
         position_pass & gross_margin.ge(brand_gross_margin) & gross_margin_cv.le(max_gross_margin_cv)
@@ -200,7 +216,7 @@ def anchor_signal_table(daily_basic: pd.DataFrame, watchlist: pd.DataFrame,
     full_pass = (
         approval_pass & dividend_pass & owner_yield_pass & cash_pass & stability_pass
         & quality_pass & leverage_pass & valuation_pass & revenue_pass & margin_stability_pass
-        & margin_erosion_pass & conversion_pass & payout_pass
+        & margin_erosion_pass & conversion_pass & payout_pass & dcf_entry_pass
     )
     out["defensive_status"] = np.where(
         full_pass,
@@ -228,6 +244,8 @@ def anchor_signal_table(daily_basic: pd.DataFrame, watchlist: pd.DataFrame,
          "FCF_CONVERSION_FAIL", "DIVIDEND_COVERAGE_FAIL"],
         default="PASS",
     )
+    if require_dcf_base:
+        out.loc[out["first_failed_anchor_gate"].eq("PASS") & ~dcf_entry_pass, "first_failed_anchor_gate"] = "DCF_BASE_VALUE_FAIL"
     out["reason"] = np.where(
         out["defensive_status"].eq("DEFENSIVE_ELIGIBLE"),
         "industry-position + pricing/scale moat proxy and financial quality gates passed",
@@ -296,8 +314,18 @@ def classify_future_states(
     future: pd.DataFrame,
     milestones: pd.DataFrame,
     evidence_readiness: pd.DataFrame | None = None,
+    previous_portfolio: pd.DataFrame | None = None,
+    valuation_warnings: pd.DataFrame | None = None,
+    as_of: str | None = None,
+    policy: dict | None = None,
 ) -> pd.DataFrame:
-    """Classify forward theses without using backtest performance as a gate."""
+    """Classify forward theses without using backtest performance as a gate.
+
+    The conservative DCF is a strict entry floor.  For an already-held future
+    position, a modest valuation premium may be retained; persistent premium is
+    warned first and then reduced by one ladder step on the next session.
+    """
+    policy = policy or {}
     required = {"ts_code", "policy_status", "future_thesis_score", "valuation_gate", "financial_check",
                 "dcf_margin_of_safety", "timing_status"}
     missing = required - set(future.columns)
@@ -371,6 +399,125 @@ def classify_future_states(
          "seed evidence gate failed: " + out["evidence_status"].astype(str)],
         default="one or more policy, thesis, value, cash-earnings, milestone or timing gates failed",
     )
+
+    # A user may explicitly confirm a dated, source-backed thesis before the
+    # mechanical timing gate turns positive. Keep this as an auditable manual
+    # override; never infer it from scores or silently mutate milestone evidence.
+    manual_overrides = {}
+    as_of_text = str(as_of or "")
+    for item in policy.get("manual_future_overrides", []) or []:
+        if not isinstance(item, dict) or not item.get("ts_code"):
+            continue
+        effective_date = str(item.get("effective_date", ""))
+        if effective_date.replace("-", "") > as_of_text.replace("-", ""):
+            continue
+        try:
+            target_weight = float(item["target_weight"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        manual_overrides[str(item["ts_code"])] = {
+            "target_weight": target_weight,
+            "strategy_state": str(item.get("strategy_state", "PROMOTED_CORE")),
+            "reason": str(item.get("reason", "人工研究覆盖：保留证据阶梯记录并单独复核。")),
+        }
+    out["manual_override"] = False
+    for idx, row in out.iterrows():
+        override = manual_overrides.get(str(row.get("ts_code", "")))
+        if override is None or bool(invalidated.loc[idx]):
+            continue
+        out.at[idx, "barbell_state"] = override["strategy_state"]
+        out.at[idx, "state_reason"] = override["reason"]
+        out.at[idx, "manual_override"] = True
+
+    # Valuation hysteresis for existing future positions.  This prevents a
+    # winner from disappearing merely because a conservative current-earnings
+    # DCF temporarily lags a market that is pricing forward expectations.
+    growth_values = out["profit_growth_avg"] if "profit_growth_avg" in out else pd.Series(np.nan, index=out.index)
+    factor = pd.to_numeric(growth_values, errors="coerce")
+    transition_values = out["profit_loss_to_profit"] if "profit_loss_to_profit" in out else pd.Series(False, index=out.index)
+    factor_multiplier = np.where(
+        transition_values.fillna(False).astype(bool),
+        float(policy.get("seed_loss_to_profit_premium_factor", 1.0)),
+        float(policy.get("seed_valuation_premium_factor", 0.80)),
+    )
+    out["valuation_premium_cap"] = factor.clip(lower=0).fillna(0.0) * factor_multiplier
+    margin = pd.to_numeric(out["dcf_margin_of_safety"], errors="coerce")
+    out["valuation_premium_exceeded"] = margin.lt(-out["valuation_premium_cap"]) & margin.notna()
+    out["valuation_warning_status"] = "NONE"
+    out["valuation_warning_reason"] = ""
+    out["previous_target_weight"] = 0.0
+    out["previous_strategy_state"] = ""
+
+    prior = pd.DataFrame()
+    if previous_portfolio is not None and not previous_portfolio.empty:
+        prior = previous_portfolio.copy()
+        if "allocation_bucket" in prior:
+            prior = prior[prior["allocation_bucket"].astype(str).eq("FUTURE")].copy()
+        if not prior.empty:
+            prior["ts_code"] = prior["ts_code"].astype(str)
+            prior["target_weight"] = pd.to_numeric(prior["target_weight"], errors="coerce").fillna(0.0)
+            prior = prior[prior["target_weight"].gt(1e-12)].drop_duplicates("ts_code", keep="last")
+    prior_map = prior.set_index("ts_code").to_dict("index") if not prior.empty else {}
+    warning_map = {}
+    if valuation_warnings is not None and not valuation_warnings.empty and "ts_code" in valuation_warnings:
+        warning_frame = valuation_warnings.copy()
+        warning_frame["ts_code"] = warning_frame["ts_code"].astype(str)
+        warning_frame["warning_date"] = (
+            warning_frame["warning_date"].astype(str)
+            if "warning_date" in warning_frame else ""
+        )
+        warning_frame = warning_frame.sort_values(["ts_code", "warning_date"])
+        warning_map = warning_frame.drop_duplicates("ts_code", keep="last").set_index("ts_code").to_dict("index")
+
+    as_of_text = str(as_of or "")
+    for idx, row in out.iterrows():
+        code = str(row.get("ts_code", ""))
+        prior_row = prior_map.get(code)
+        prior_weight = float(prior_row.get("target_weight", 0.0)) if prior_row else 0.0
+        prior_state = str(prior_row.get("strategy_state", prior_row.get("barbell_state", ""))) if prior_row else ""
+        if not prior_state and prior_weight > 0:
+            # Holdings history intentionally stores only the executable target;
+            # infer the prior future ladder step when reading older snapshots.
+            seed_step = float(policy.get("option_seed_weight", 0.025))
+            build_step = float(policy.get("confirmed_build_weight", 0.05))
+            core_step = float(policy.get("promoted_core_weight", 0.075))
+            if abs(prior_weight - seed_step) < 1e-9:
+                prior_state = "OPTION_SEED"
+            elif abs(prior_weight - build_step) < 1e-9:
+                prior_state = "CONFIRMED_BUILD"
+            elif abs(prior_weight - core_step) < 1e-9:
+                prior_state = "PROMOTED_CORE"
+        out.at[idx, "previous_target_weight"] = prior_weight
+        out.at[idx, "previous_strategy_state"] = prior_state
+        if prior_weight <= 0 or prior_state not in {"OPTION_SEED", "CONFIRMED_BUILD", "PROMOTED_CORE"}:
+            continue
+        # Only valuation is allowed to invoke this grace path. Hard thesis,
+        # evidence and cash failures retain their normal reduction behaviour.
+        hard_ready = bool(policy_pass.loc[idx] and thesis_pass.loc[idx] and cash_pass.loc[idx]
+                          and evidence_pass.loc[idx] and not invalidated.loc[idx]
+                          and (bottom.loc[idx] or trend.loc[idx]))
+        if not hard_ready or bool(value_pass.loc[idx]) or pd.isna(margin.loc[idx]):
+            continue
+        premium_exceeded = bool(out.at[idx, "valuation_premium_exceeded"])
+        warning = warning_map.get(code, {})
+        prior_status = str(warning.get("status", ""))
+        prior_date = str(warning.get("warning_date", ""))
+        persistent = premium_exceeded and prior_status == "WARNING" and prior_date < as_of_text
+        if premium_exceeded and persistent:
+            out.at[idx, "barbell_state"] = "VALUATION_REDUCTION"
+            out.at[idx, "valuation_warning_status"] = "EXIT_DUE"
+            out.at[idx, "valuation_warning_reason"] = (
+                "估值溢价连续确认超过最近两个季度利润增长允许上限；已预警一个交易日，下一交易日只按一档减仓。"
+            )
+        else:
+            out.at[idx, "barbell_state"] = prior_state
+            out.at[idx, "valuation_warning_status"] = "WARNING" if premium_exceeded else "WITHIN_TOLERANCE"
+            out.at[idx, "valuation_warning_reason"] = (
+                "已持有仓位，当前价格仅处于利润增长允许的预期溢价带内；保留原仓位，暂停加仓和晋级。"
+                if not premium_exceeded else
+                "估值溢价超过最近两个季度利润增长允许上限；先预警并保留原仓位一个交易日，不立即卖出。"
+            )
+        out.at[idx, "state_reason"] = out.at[idx, "valuation_warning_reason"]
     return out
 
 
@@ -378,8 +525,18 @@ def build_barbell_weights(
     anchors: pd.DataFrame,
     future_states: pd.DataFrame,
     policy: dict,
+    previous_portfolio: pd.DataFrame | None = None,
+    anchor_valuation_warnings: pd.DataFrame | None = None,
+    as_of: str | None = None,
 ) -> tuple[pd.DataFrame, dict]:
-    """Allocate anchors, small option seeds and promoted cores; leave the rest in cash."""
+    """Allocate anchors, small option seeds and promoted cores; leave the rest in cash.
+
+    When a previous target is supplied, the anchor sleeve is deliberately sticky:
+    existing anchor names keep their published weight, a failed screen only takes
+    one configured reduction step, and a new name can enter only from unused
+    anchor/cash capacity.  This prevents a small daily score difference from
+    turning into a full liquidation and replacement.
+    """
     anchor_target = float(policy["anchor_target"])
     cash_floor = float(policy["cash_floor"])
     seed_weight = float(policy["option_seed_weight"])
@@ -396,18 +553,167 @@ def build_barbell_weights(
 
     rows: list[dict] = []
     eligible_anchors = anchors[anchors["defensive_status"].eq("DEFENSIVE_ELIGIBLE")].copy()
-    anchor_weights = _anchor_weights(eligible_anchors, policy)
-    eligible_anchors = eligible_anchors.loc[anchor_weights.index].copy()
-    if not eligible_anchors.empty:
-        for idx, row in eligible_anchors.iterrows():
-            rows.append({"ts_code": row["ts_code"], "name": row.get("name"), "theme": "稳定现金流",
-                         "l1_name": row.get("l1_name"),
-                         "economic_factor": row.get("economic_factor"),
-                         "moat_proxy_type": row.get("moat_proxy_type"),
-                         "moat_proxy_score": row.get("moat_proxy_score"),
-                         "moat_evidence_status": "PROXY_REQUIRES_PRIMARY_EVIDENCE",
-                         "allocation_bucket": "ANCHOR", "strategy_state": "ANCHOR",
-                         "target_weight": float(anchor_weights.loc[idx]), "reason": row.get("reason", "automatic anchor")})
+    prior = pd.DataFrame()
+    if previous_portfolio is not None and not previous_portfolio.empty:
+        prior = previous_portfolio.copy()
+        prior = prior[prior.get("allocation_bucket", "").astype(str).eq("ANCHOR")].copy()
+        prior["ts_code"] = prior["ts_code"].astype(str)
+        prior["target_weight"] = pd.to_numeric(prior["target_weight"], errors="coerce").fillna(0.0)
+        prior = prior[prior["target_weight"].gt(1e-12)].drop_duplicates("ts_code", keep="last")
+
+    anchor_warning_map = {}
+    if anchor_valuation_warnings is not None and not anchor_valuation_warnings.empty and "ts_code" in anchor_valuation_warnings:
+        warning_frame = anchor_valuation_warnings.copy()
+        warning_frame["ts_code"] = warning_frame["ts_code"].astype(str)
+        warning_frame["warning_date"] = warning_frame["warning_date"].astype(str) if "warning_date" in warning_frame else ""
+        anchor_warning_map = warning_frame.sort_values(["ts_code", "warning_date"]).drop_duplicates(
+            "ts_code", keep="last"
+        ).set_index("ts_code").to_dict("index")
+    as_of_text = str(as_of or "")
+    manual_overrides = {}
+    for item in policy.get("manual_anchor_overrides", []) or []:
+        if not isinstance(item, dict) or not item.get("ts_code"):
+            continue
+        effective_date = str(item.get("effective_date", ""))
+        effective_key = effective_date.replace("-", "")
+        as_of_key = as_of_text.replace("-", "")
+        if effective_key and as_of_key and effective_key > as_of_key:
+            continue
+        try:
+            target_weight = float(item["target_weight"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if target_weight < 0:
+            continue
+        manual_overrides[str(item["ts_code"])] = {
+            "target_weight": target_weight,
+            "reason": str(item.get("reason", "人工研究调整：释放仓位保留为现金。")),
+        }
+
+    def _anchor_row(code: str, current: pd.Series | None, prior_row: pd.Series | None,
+                    weight: float, reason: str) -> dict:
+        current = current if current is not None else pd.Series(dtype=object)
+        prior_row = prior_row if prior_row is not None else pd.Series(dtype=object)
+        value = lambda key, default=None: current.get(key, prior_row.get(key, default))
+        return {
+            "ts_code": code,
+            "name": value("name", code),
+            "theme": "稳定现金流",
+            "l1_name": value("l1_name"),
+            "economic_factor": value("economic_factor"),
+            "moat_proxy_type": value("moat_proxy_type"),
+            "moat_proxy_score": value("moat_proxy_score"),
+            "moat_evidence_status": "PROXY_REQUIRES_PRIMARY_EVIDENCE",
+            "allocation_bucket": "ANCHOR", "strategy_state": "ANCHOR",
+            "target_weight": float(weight), "reason": reason,
+        }
+
+    sticky = not prior.empty and bool(policy.get("anchor_sticky", True))
+    anchor_used = 0.0
+    selected_anchor_codes: set[str] = set()
+    if sticky:
+        current_by_code = anchors.copy()
+        if "ts_code" in current_by_code:
+            current_by_code["ts_code"] = current_by_code["ts_code"].astype(str)
+            current_by_code = current_by_code.drop_duplicates("ts_code").set_index("ts_code")
+        reduction_step = float(policy.get("anchor_reduction_step", 0.025))
+        minimum_weight = float(policy.get("anchor_min_weight", reduction_step))
+        for _, prior_row in prior.iterrows():
+            code = str(prior_row["ts_code"])
+            current = current_by_code.loc[code] if code in current_by_code.index else None
+            eligible_now = current is not None and str(current.get("defensive_status", "")).upper() == "DEFENSIVE_ELIGIBLE"
+            previous_weight = float(prior_row["target_weight"])
+            dcf_status = str(current.get("anchor_dcf_status", "NOT_FETCHED")) if current is not None else "NOT_FETCHED"
+            dcf_data_present = bool(current.get("anchor_dcf_data_present", dcf_status != "NOT_FETCHED")) if current is not None else False
+            warning = anchor_warning_map.get(code, {})
+            manual_override = manual_overrides.get(code)
+            warning_persisted = (
+                dcf_status == "OVER_OPTIMISTIC"
+                and str(warning.get("status", "")) == "WARNING"
+                and str(warning.get("warning_date", "")) < as_of_text
+            )
+            if manual_override is not None:
+                weight = manual_override["target_weight"]
+                reason = manual_override["reason"]
+            elif current is None:
+                weight = previous_weight
+                reason = "当前财务数据未取回，保留上一交易日锚仓；缺失数据不能解释为估值通过或护城河失效。"
+            elif dcf_status == "NOT_FETCHED" and dcf_data_present:
+                weight = previous_weight
+                reason = "DCF敏感性数据未取回，保留上一交易日锚仓；缺失数据不能解释为估值通过或护城河失效。"
+            elif dcf_status == "PREMIUM_WITHIN_OPTIMISTIC":
+                weight = previous_weight
+                reason = "基准DCF略高于当前价格，但乐观情景仍有估值支撑；保留原仓位、暂停加仓，不因一天溢价直接替换。"
+            elif dcf_status == "OVER_OPTIMISTIC" and not warning_persisted:
+                weight = previous_weight
+                reason = "价格已高于乐观DCF情景；先发出估值预警并保留一个交易日，确认前不卖出、不替换。"
+            elif dcf_status == "OVER_OPTIMISTIC" and warning_persisted:
+                reduction_step = float(policy.get("anchor_reduction_step", 0.025))
+                minimum_weight = float(policy.get("anchor_min_weight", reduction_step))
+                weight = max(previous_weight - reduction_step, minimum_weight)
+                reason = "价格连续高于乐观DCF情景；预警已确认，下一交易日按2.5个百分点减仓，估值本身不直接清仓。"
+            elif eligible_now:
+                weight = previous_weight
+                reason = "上一交易日锚仓保留：基本面、基准DCF和护城河代理没有硬性退出条件，避免因每日评分波动频繁换仓。"
+            else:
+                weight = max(previous_weight - reduction_step, minimum_weight)
+                reason = "当前筛选状态需人工复核，按锚仓减仓阶梯下调；不自动清仓、不把新标的直接换入。"
+            rows.append(_anchor_row(code, current, prior_row, weight, reason))
+            selected_anchor_codes.add(code)
+            anchor_used += weight
+
+        # Only unused anchor capacity and unused name slots may fund a new entry.
+        # Existing names are never displaced just because a newcomer scores a few
+        # points higher.
+        entry_weight = float(policy.get("anchor_entry_weight", 0.025))
+        max_names = int(policy.get("anchor_max_names", 6))
+        stock_cap = float(policy.get("anchor_max_weight", anchor_target))
+        industry_cap = float(policy.get("anchor_industry_cap", anchor_target))
+        factor_cap = float(policy.get("anchor_economic_factor_cap", anchor_target))
+        ranked = eligible_anchors[~eligible_anchors["ts_code"].astype(str).isin(selected_anchor_codes)].copy()
+        if not ranked.empty:
+            ranked = ranked.sort_values(["anchor_score", "ts_code"], ascending=[False, True])
+            if "economic_factor" not in ranked:
+                ranked["economic_factor"] = assign_anchor_economic_factors(ranked)
+            ranked["economic_factor"] = ranked["economic_factor"].fillna("OTHER")
+            used_frame = pd.DataFrame(rows)
+            industry_used = used_frame.groupby("l1_name")["target_weight"].sum().to_dict()
+            factor_used = used_frame.groupby("economic_factor")["target_weight"].sum().to_dict()
+            slots = max(max_names - len(selected_anchor_codes), 0)
+            for _, candidate in ranked.iterrows():
+                if slots <= 0 or anchor_used >= anchor_target - 1e-12:
+                    break
+                industry = str(candidate.get("l1_name", ""))
+                factor = str(candidate.get("economic_factor", "OTHER"))
+                allowed = min(
+                    entry_weight,
+                    anchor_target - anchor_used,
+                    stock_cap,
+                    industry_cap - industry_used.get(industry, 0.0),
+                    factor_cap - factor_used.get(factor, 0.0),
+                )
+                if allowed <= 1e-12:
+                    continue
+                code = str(candidate["ts_code"])
+                rows.append(_anchor_row(
+                    code, candidate, None, allowed,
+                    "现金预算内新增观察锚仓；不替换既有锚仓，仍需持续的一手护城河证据复核。",
+                ))
+                selected_anchor_codes.add(code)
+                anchor_used += allowed
+                industry_used[industry] = industry_used.get(industry, 0.0) + allowed
+                factor_used[factor] = factor_used.get(factor, 0.0) + allowed
+                slots -= 1
+    else:
+        anchor_weights = _anchor_weights(eligible_anchors, policy)
+        eligible_anchors = eligible_anchors.loc[anchor_weights.index].copy()
+        if not eligible_anchors.empty:
+            for idx, row in eligible_anchors.iterrows():
+                rows.append(_anchor_row(
+                    str(row["ts_code"]), row, None, float(anchor_weights.loc[idx]),
+                    row.get("reason", "automatic anchor"),
+                ))
+            anchor_used = float(anchor_weights.sum())
 
     # A security can serve one sleeve only. Once approved as a stable anchor it
     # cannot simultaneously consume the future-industry risk budget.
@@ -416,36 +722,50 @@ def build_barbell_weights(
         candidates = pd.DataFrame(columns=[*future_states.columns, "ts_code"])
     else:
         candidates = future_states[
-            future_states["barbell_state"].isin(["PROMOTED_CORE", "CONFIRMED_BUILD", "OPTION_SEED"])
+            future_states["barbell_state"].isin([
+                "PROMOTED_CORE", "CONFIRMED_BUILD", "OPTION_SEED", "VALUATION_REDUCTION",
+            ])
             & ~future_states["ts_code"].astype(str).isin(anchor_codes)
         ].copy()
     for column in ["barbell_state", "future_thesis_score"]:
         if column not in candidates:
             candidates[column] = pd.Series(dtype=object if column == "barbell_state" else float)
     candidates["_state_order"] = candidates["barbell_state"].map(
-        {"PROMOTED_CORE": 0, "CONFIRMED_BUILD": 1, "OPTION_SEED": 2}
+        {"PROMOTED_CORE": 0, "CONFIRMED_BUILD": 1, "OPTION_SEED": 2, "VALUATION_REDUCTION": 3}
     )
     candidates = candidates.sort_values(["_state_order", "future_thesis_score"], ascending=[True, False])
     future_used = 0.0
     seed_used = 0.0
     theme_used: dict[str, float] = {}
     for _, row in candidates.iterrows():
-        requested = {
-            "PROMOTED_CORE": core_weight,
-            "CONFIRMED_BUILD": build_weight,
-            "OPTION_SEED": seed_weight,
-        }[row["barbell_state"]]
+        if row["barbell_state"] == "VALUATION_REDUCTION":
+            previous_value = pd.to_numeric(row.get("previous_target_weight"), errors="coerce")
+            previous_weight = float(previous_value) if pd.notna(previous_value) else 0.0
+            requested = max(previous_weight - seed_weight, 0.0)
+        else:
+            requested = {
+                "PROMOTED_CORE": core_weight,
+                "CONFIRMED_BUILD": build_weight,
+                "OPTION_SEED": seed_weight,
+            }[row["barbell_state"]]
+        if requested <= 1e-12:
+            continue
         theme = str(row.get("theme", "未分类"))
         allowed = min(requested, future_cap - future_used, theme_cap - theme_used.get(theme, 0.0))
         if row["barbell_state"] == "OPTION_SEED":
             allowed = min(allowed, seed_cap - seed_used)
         if allowed <= 1e-12:
             continue
+        strategy_state = (
+            str(row.get("previous_strategy_state", ""))
+            if row["barbell_state"] == "VALUATION_REDUCTION"
+            else row["barbell_state"]
+        )
         rows.append({"ts_code": row["ts_code"], "name": row.get("name"), "theme": theme,
                      "l1_name": row.get("l1_name"),
                      "economic_factor": None, "moat_proxy_type": None,
                      "moat_proxy_score": np.nan, "moat_evidence_status": None,
-                     "allocation_bucket": "FUTURE", "strategy_state": row["barbell_state"],
+                     "allocation_bucket": "FUTURE", "strategy_state": strategy_state,
                      "target_weight": allowed, "reason": row["state_reason"]})
         future_used += allowed
         if row["barbell_state"] == "OPTION_SEED":
