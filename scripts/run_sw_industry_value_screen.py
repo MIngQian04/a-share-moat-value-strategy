@@ -137,6 +137,12 @@ def main() -> None:
             owner_yield = value["normalized_owner_earnings"] / market_cap if market_cap > 0 else np.nan
             dcf_price = value["owner_earnings_value_per_share"]
             margin = dcf_price / float(row["close"]) - 1 if pd.notna(dcf_price) and row["close"] > 0 else np.nan
+            for scenario in ["very_optimistic", "optimistic", "base", "cautious", "very_pessimistic"]:
+                scenario_price = value.get(f"dcf_{scenario}_value_per_share")
+                value[f"dcf_{scenario}_margin_of_safety"] = (
+                    scenario_price / float(row["close"]) - 1
+                    if pd.notna(scenario_price) and row["close"] > 0 else np.nan
+                )
             financial_rows.append({"ts_code": code, **value, "owner_earnings_yield": owner_yield, "dcf_margin_of_safety": margin, "financial_error": ""})
         except Exception as exc:
             financial_rows.append({"ts_code": code, "financial_error": str(exc)[:200]})

@@ -1,4 +1,5 @@
 import pandas as pd
+import pytest
 
 from portfolio.barbell_strategy import (
     anchor_signal_table,
@@ -51,6 +52,52 @@ def test_two_verified_milestones_use_confirmed_build_step():
     readiness = pd.DataFrame([{"ts_code": "A", "evidence_status": "SEED_READY",
                                "seed_evidence_ready": True, "promotion_evidence_ready": True}])
     assert classify_future_states(future, milestones, readiness).iloc[0]["barbell_state"] == "CONFIRMED_BUILD"
+
+
+def test_held_seed_survives_a_modest_dcf_premium_with_additions_frozen():
+    future = pd.DataFrame([{
+        "ts_code": "A", "policy_status": "POLICY_ELIGIBLE", "future_thesis_score": 80,
+        "valuation_gate": "REASONABLE", "financial_check": "PASS_SURVIVAL",
+        "dcf_margin_of_safety": -.05, "timing_status": "BOTTOM_HOLD_NO_ADD",
+        "profit_growth_avg": .10, "profit_loss_to_profit": False,
+    }])
+    readiness = pd.DataFrame([{"ts_code": "A", "evidence_status": "SEED_READY",
+                               "seed_evidence_ready": True, "promotion_evidence_ready": True}])
+    previous = pd.DataFrame([{"ts_code": "A", "allocation_bucket": "FUTURE",
+                              "target_weight": .025, "strategy_state": "OPTION_SEED"}])
+    state = classify_future_states(
+        future, pd.DataFrame([{"ts_code": "A"}]), readiness,
+        previous_portfolio=previous, as_of="2026-07-17",
+        policy={"seed_valuation_premium_factor": .8},
+    ).iloc[0]
+    assert state["barbell_state"] == "OPTION_SEED"
+    assert state["valuation_warning_status"] == "WITHIN_TOLERANCE"
+
+
+def test_persistent_seed_premium_reduces_one_ladder_step_after_warning():
+    future = pd.DataFrame([{
+        "ts_code": "A", "name": "A", "policy_status": "POLICY_ELIGIBLE", "future_thesis_score": 80,
+        "valuation_gate": "REASONABLE", "financial_check": "PASS_SURVIVAL",
+        "dcf_margin_of_safety": -.15, "timing_status": "BOTTOM_HOLD_NO_ADD",
+        "profit_growth_avg": .10, "profit_loss_to_profit": False,
+    }])
+    readiness = pd.DataFrame([{"ts_code": "A", "evidence_status": "SEED_READY",
+                               "seed_evidence_ready": True, "promotion_evidence_ready": True}])
+    previous = pd.DataFrame([{"ts_code": "A", "allocation_bucket": "FUTURE",
+                              "target_weight": .05, "strategy_state": "CONFIRMED_BUILD"}])
+    warnings = pd.DataFrame([{"ts_code": "A", "warning_date": "2026-07-16",
+                              "status": "WARNING", "consecutive_days": 1}])
+    state = classify_future_states(
+        future, pd.DataFrame([{"ts_code": "A"}]), readiness,
+        previous_portfolio=previous, valuation_warnings=warnings,
+        as_of="2026-07-17", policy={"seed_valuation_premium_factor": .8},
+    )
+    assert state.iloc[0]["barbell_state"] == "VALUATION_REDUCTION"
+    portfolio, _ = build_barbell_weights(
+        pd.DataFrame(columns=["defensive_status"]), state,
+        {**POLICY, "option_seed_weight": .025}, previous_portfolio=previous,
+    )
+    assert portfolio.iloc[0]["target_weight"] == .025
 
 
 def test_option_seed_is_blocked_when_evidence_gate_is_incomplete():
@@ -134,6 +181,119 @@ def test_auto_anchor_does_not_require_manual_moat_flag():
     assert anchor_signal_table(daily, watch, financials, policy).iloc[0]["defensive_status"] == "DEFENSIVE_ELIGIBLE"
 
 
+def test_new_anchor_requires_positive_base_dcf_when_policy_enables_it():
+    daily = pd.DataFrame([{"ts_code": "A", "dv_ratio": 4.0, "pe_ttm": 10.0}])
+    watch = pd.DataFrame([{"ts_code": "A", "name": "A", "moat_approved": "FALSE"}])
+    financials = pd.DataFrame([{
+        "ts_code": "A", "owner_earnings_yield": .05, "normalized_owner_earnings": 10,
+        "normalized_fcf": 8, "net_cash": 1, "dcf_base_margin_of_safety": -.05,
+        "dcf_optimistic_margin_of_safety": .06,
+    }])
+    result = anchor_signal_table(
+        daily, watch, financials,
+        {"anchor_selection_mode": "auto", "anchor_require_dcf_base": True},
+    ).iloc[0]
+    assert result["defensive_status"] == "WATCH"
+    assert result["first_failed_anchor_gate"] == "DCF_BASE_VALUE_FAIL"
+    assert result["anchor_dcf_status"] == "PREMIUM_WITHIN_OPTIMISTIC"
+
+
+def test_existing_anchor_inside_optimistic_dcf_is_held_without_additions():
+    anchors = pd.DataFrame([{
+        "ts_code": "A", "name": "A", "defensive_status": "WATCH",
+        "anchor_dcf_status": "PREMIUM_WITHIN_OPTIMISTIC", "l1_name": "消费",
+        "economic_factor": "CONSUMPTION",
+    }])
+    previous = pd.DataFrame([{"ts_code": "A", "name": "A", "allocation_bucket": "ANCHOR", "target_weight": .15}])
+    portfolio, _ = build_barbell_weights(
+        anchors, pd.DataFrame(columns=["barbell_state"]),
+        {**POLICY, "anchor_sticky": True, "anchor_min_weight": .025, "anchor_reduction_step": .025},
+        previous_portfolio=previous, as_of="2026-07-17",
+    )
+    row = portfolio.iloc[0]
+    assert row["target_weight"] == .15
+    assert "暂停加仓" in row["reason"]
+
+
+def test_anchor_above_optimistic_dcf_warns_then_reduces_one_step():
+    anchors = pd.DataFrame([{
+        "ts_code": "A", "name": "A", "defensive_status": "WATCH",
+        "anchor_dcf_status": "OVER_OPTIMISTIC", "l1_name": "消费",
+        "economic_factor": "CONSUMPTION",
+    }])
+    previous = pd.DataFrame([{"ts_code": "A", "name": "A", "allocation_bucket": "ANCHOR", "target_weight": .15}])
+    policy = {**POLICY, "anchor_sticky": True, "anchor_min_weight": .025, "anchor_reduction_step": .025}
+    first, _ = build_barbell_weights(
+        anchors, pd.DataFrame(columns=["barbell_state"]), policy,
+        previous_portfolio=previous, as_of="2026-07-17",
+    )
+    assert first.iloc[0]["target_weight"] == .15
+    assert "预警" in first.iloc[0]["reason"]
+    warnings = pd.DataFrame([{"ts_code": "A", "warning_date": "2026-07-16", "status": "WARNING"}])
+    second, _ = build_barbell_weights(
+        anchors, pd.DataFrame(columns=["barbell_state"]), policy,
+        previous_portfolio=previous, anchor_valuation_warnings=warnings,
+        as_of="2026-07-17",
+    )
+    assert second.iloc[0]["target_weight"] == .125
+    assert "减仓" in second.iloc[0]["reason"]
+
+
+def test_manual_anchor_override_releases_weight_to_cash():
+    anchors = pd.DataFrame([{
+        "ts_code": "000786.SZ", "name": "北新建材", "defensive_status": "DEFENSIVE_ELIGIBLE",
+        "anchor_dcf_status": "BASE_SUPPORTED", "l1_name": "建筑材料",
+        "economic_factor": "INDUSTRIAL_CAPEX",
+    }])
+    previous = pd.DataFrame([{
+        "ts_code": "000786.SZ", "name": "北新建材", "allocation_bucket": "ANCHOR",
+        "target_weight": .15,
+    }])
+    policy = {**POLICY, "anchor_sticky": True, "anchor_max_names": 1,
+              "manual_anchor_overrides": [{
+                  "ts_code": "000786.SZ", "target_weight": .10,
+                  "effective_date": "20260720", "reason": "人工研究降仓",
+              }]}
+    portfolio, summary = build_barbell_weights(
+        anchors, pd.DataFrame(columns=["barbell_state"]), policy,
+        previous_portfolio=previous, as_of="20260720",
+    )
+    row = portfolio.iloc[0]
+    assert row["target_weight"] == .10
+    assert row["reason"] == "人工研究降仓"
+    assert summary["cash_weight"] == .90
+
+
+def test_manual_future_override_promotes_with_explicit_reason():
+    future = pd.DataFrame([{
+        "ts_code": "600941.SH", "name": "中国移动", "policy_status": "POLICY_ELIGIBLE",
+        "future_thesis_score": 88, "valuation_gate": "REASONABLE",
+        "financial_check": "PASS_SURVIVAL", "dcf_margin_of_safety": .20,
+        "timing_status": "BOTTOM_HOLD_NO_ADD",
+    }])
+    milestones = pd.DataFrame([{
+        "ts_code": "600941.SH", "demand_status": "VERIFIED",
+        "profit_pool_status": "VERIFIED", "company_status": "VERIFIED",
+        "invalidation_status": "NONE",
+    }])
+    state = classify_future_states(
+        future, milestones,
+        evidence_readiness=pd.DataFrame([{
+            "ts_code": "600941.SH", "evidence_status": "SEED_READY",
+            "seed_evidence_ready": True, "promotion_evidence_ready": True,
+        }]),
+        as_of="2026-07-17",
+        policy={"manual_future_overrides": [{
+            "ts_code": "600941.SH", "target_weight": .075,
+            "strategy_state": "PROMOTED_CORE", "effective_date": "2026-07-17",
+            "reason": "人工确认中国移动",
+        }]},
+    )
+    assert state.iloc[0]["barbell_state"] == "PROMOTED_CORE"
+    assert state.iloc[0]["manual_override"]
+    assert state.iloc[0]["state_reason"] == "人工确认中国移动"
+
+
 def test_approved_anchor_cannot_also_receive_future_weight():
     anchors = pd.DataFrame([{"ts_code": "A", "name": "A", "defensive_status": "DEFENSIVE_ELIGIBLE"}])
     future = pd.DataFrame([{"ts_code": "A", "name": "A", "theme": "x", "barbell_state": "OPTION_SEED",
@@ -141,6 +301,41 @@ def test_approved_anchor_cannot_also_receive_future_weight():
     portfolio, _ = build_barbell_weights(anchors, future, POLICY)
     assert len(portfolio[portfolio["ts_code"].eq("A")]) == 1
     assert portfolio.iloc[0]["allocation_bucket"] == "ANCHOR"
+
+
+def test_sticky_anchor_does_not_replace_gree_with_a_small_score_leader():
+    anchors = pd.DataFrame([
+        {"ts_code": "000651.SZ", "name": "格力电器", "defensive_status": "DEFENSIVE_ELIGIBLE",
+         "anchor_score": 71.56, "l1_name": "家用电器", "economic_factor": "DOMESTIC_CONSUMPTION"},
+        {"ts_code": "603195.SH", "name": "公牛集团", "defensive_status": "DEFENSIVE_ELIGIBLE",
+         "anchor_score": 71.71, "l1_name": "家用电器", "economic_factor": "DOMESTIC_CONSUMPTION"},
+    ])
+    previous = pd.DataFrame([{
+        "date": "2026-07-16", "ts_code": "000651.SZ", "name": "格力电器",
+        "allocation_bucket": "ANCHOR", "target_weight": .064865, "close": 39.83,
+    }])
+    policy = {**POLICY, "anchor_target": .10, "anchor_max_names": 1,
+              "anchor_entry_weight": .025, "anchor_sticky": True}
+    portfolio, _ = build_barbell_weights(anchors, pd.DataFrame(columns=["barbell_state"]), policy, previous)
+    weights = portfolio.set_index("ts_code")["target_weight"]
+    assert weights["000651.SZ"] == .064865
+    assert "603195.SH" not in weights
+
+
+def test_sticky_anchor_reduces_in_steps_but_never_auto_clears():
+    anchors = pd.DataFrame([{
+        "ts_code": "000651.SZ", "name": "格力电器", "defensive_status": "WATCH",
+        "anchor_score": 20, "l1_name": "家用电器", "economic_factor": "DOMESTIC_CONSUMPTION",
+    }])
+    previous = pd.DataFrame([{
+        "date": "2026-07-16", "ts_code": "000651.SZ", "name": "格力电器",
+        "allocation_bucket": "ANCHOR", "target_weight": .064865, "close": 39.83,
+    }])
+    portfolio, _ = build_barbell_weights(anchors, pd.DataFrame(columns=["barbell_state"]), POLICY, previous)
+    row = portfolio.loc[portfolio["ts_code"].eq("000651.SZ")].iloc[0]
+    assert row["target_weight"] == pytest.approx(.039865)
+    assert row["target_weight"] >= POLICY.get("anchor_min_weight", .025)
+    assert "不自动清仓" in row["reason"]
 
 
 def test_full_market_anchor_universe_applies_first_pass_and_industry_cap():

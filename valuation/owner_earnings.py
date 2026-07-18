@@ -4,6 +4,60 @@ import numpy as np
 import pandas as pd
 
 
+# The base case remains the existing 10% conservative DCF.  Sensitivity is
+# expressed in percentage points rather than multiplicative percentages so a
+# reviewer can see exactly how much the required return moved.
+DCF_SENSITIVITY_OFFSETS = {
+    "VERY_OPTIMISTIC": -2,
+    "OPTIMISTIC": -1,
+    "BASE": 0,
+    "CAUTIOUS": 1,
+    "VERY_PESSIMISTIC": 2,
+}
+
+
+
+def dcf_sensitivity(
+    normalized_owner_earnings: float,
+    net_cash: float,
+    shares: float,
+    growth: float = 0.03,
+    base_discount_rate: float = 0.10,
+    terminal_growth: float = 0.025,
+    years: int = 5,
+    discount_rate_step: float = 0.01,
+) -> dict:
+    """Return five auditable DCF cases around the base discount rate.
+
+    The underlying earnings and cash inputs stay fixed.  Only the required
+    return moves by one percentage point per level, which makes the result a
+    valuation sensitivity rather than a hidden change to the business thesis.
+    The existing ``owner_earnings_value_per_share`` field remains the BASE case
+    for backwards-compatible screening.
+    """
+    base_rate = safe_num(base_discount_rate)
+    step = safe_num(discount_rate_step)
+    if pd.isna(base_rate):
+        base_rate = 0.10
+    if pd.isna(step) or step < 0:
+        step = 0.01
+    result = {}
+    for label, offset in DCF_SENSITIVITY_OFFSETS.items():
+        rate = round(float(base_rate + offset * step), 6)
+        key = label.lower()
+        result[f"dcf_{key}_discount_rate"] = rate
+        result[f"dcf_{key}_value_per_share"] = conservative_dcf(
+            normalized_owner_earnings,
+            net_cash,
+            shares,
+            growth=growth,
+            discount_rate=rate,
+            terminal_growth=terminal_growth,
+            years=years,
+        )
+    return result
+
+
 def safe_num(value) -> float:
     try:
         value = float(value)
@@ -43,7 +97,12 @@ def conservative_dcf(
 
 
 def owner_earnings_from_statements(
-    income: pd.DataFrame, cashflow: pd.DataFrame, balance: pd.DataFrame, total_shares: float
+    income: pd.DataFrame,
+    cashflow: pd.DataFrame,
+    balance: pd.DataFrame,
+    total_shares: float,
+    discount_rate: float = 0.10,
+    discount_rate_step: float = 0.01,
 ) -> dict:
     """Calculate normalized owner earnings from annual point-in-time statements."""
     def annual(df: pd.DataFrame) -> pd.DataFrame:
@@ -120,7 +179,14 @@ def owner_earnings_from_statements(
     debt = sum(v for v in [safe_num(latest_bs.get("st_borr")), safe_num(latest_bs.get("lt_borr")), safe_num(latest_bs.get("bond_payable")), safe_num(latest_bs.get("non_cur_liab_due_1y"))] if pd.notna(v))
     net_cash = (0.0 if pd.isna(cash) else cash) - debt
     shares = safe_num(total_shares)
-    price = conservative_dcf(normalized, net_cash, shares)
+    sensitivity = dcf_sensitivity(
+        normalized,
+        net_cash,
+        shares,
+        base_discount_rate=discount_rate,
+        discount_rate_step=discount_rate_step,
+    )
+    price = sensitivity["dcf_base_value_per_share"]
     normalized_fcf = float(history["free_cash_flow"].tail(3).median()) if not history.empty else np.nan
     fcf_conversion = (
         normalized_fcf / normalized
@@ -141,6 +207,7 @@ def owner_earnings_from_statements(
         "normalized_fcf_conversion": fcf_conversion,
         "net_cash": net_cash,
         "owner_earnings_value_per_share": price,
+        **sensitivity,
     }
 
 
