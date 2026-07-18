@@ -28,6 +28,70 @@ NAV_DIVIDEND_COLUMNS = [
     "dividend_cash_per_unit", "cumulative_dividend_cash",
     "reinvested_dividend_cash", "pending_dividend_cash", "dividend_receivable",
 ]
+BENCHMARK_PATH = PROJECT_ROOT / "data/processed/index_benchmark.csv"
+BENCHMARK_CODE = "000300.SH"
+BENCHMARK_NAME = "沪深300"
+BENCHMARK_NAME_EN = "CSI 300"
+
+
+def _benchmark_history(nav_dates: list[str]) -> dict:
+    """Build a same-date, unit-1 CSI 300 price proxy for the public site.
+
+    The benchmark intentionally uses the raw index close, not a dividend-adjusted
+    series.  Missing dates are reported explicitly instead of being filled from
+    the portfolio or treated as zero returns.
+    """
+    result = {
+        "code": BENCHMARK_CODE,
+        "name": BENCHMARK_NAME,
+        "nameEn": BENCHMARK_NAME_EN,
+        "basis": "沪深300原始收盘价指数代理，不含指数分红；与组合同一记录日归一化为1",
+        "basisEn": "CSI 300 raw close proxy, excluding index dividends; normalized to 1 on the same recorded dates",
+        "status": "UNAVAILABLE",
+        "startDate": nav_dates[0] if nav_dates else "",
+        "endDate": nav_dates[-1] if nav_dates else "",
+        "history": [],
+    }
+    if not nav_dates or not BENCHMARK_PATH.exists():
+        return result
+    try:
+        benchmark = pd.read_csv(BENCHMARK_PATH)
+    except (OSError, pd.errors.ParserError):
+        return result
+    required = {"trade_date", "close"}
+    if not required.issubset(benchmark.columns):
+        return result
+    benchmark = benchmark.copy()
+    raw_dates = benchmark["trade_date"].astype(str).str.strip()
+    normalized_dates = pd.to_datetime(raw_dates, format="%Y%m%d", errors="coerce")
+    normalized_dates = normalized_dates.fillna(pd.to_datetime(raw_dates, errors="coerce"))
+    benchmark["trade_date"] = normalized_dates.dt.strftime("%Y-%m-%d")
+    benchmark["close"] = pd.to_numeric(benchmark["close"], errors="coerce")
+    benchmark = benchmark[benchmark["close"].gt(0)].drop_duplicates("trade_date", keep="last")
+    by_date = benchmark.set_index("trade_date")["close"]
+    missing = [date for date in nav_dates if date not in by_date.index]
+    if missing:
+        result["status"] = "PARTIAL" if any(date in by_date.index for date in nav_dates) else "UNAVAILABLE"
+        result["missingDates"] = missing
+        return result
+    closes = [float(by_date.loc[date]) for date in nav_dates]
+    base = closes[0]
+    units = [close / base for close in closes]
+    history = []
+    for index, (date, unit) in enumerate(zip(nav_dates, units)):
+        previous = units[index - 1] if index else 1.0
+        history.append({
+            "date": date,
+            "nav": unit,
+            "dailyReturn": unit / previous - 1 if previous else 0.0,
+        })
+    result.update({
+        "status": "OK",
+        "history": history,
+        "startDate": nav_dates[0],
+        "endDate": nav_dates[-1],
+    })
+    return result
 
 
 def _allocation_change_reason(change_type: str, bucket: str, detail: str = "") -> str:
@@ -540,9 +604,12 @@ def export_portfolio_site_data(output_dir: Path, destination: Path) -> Path:
         "valuationWarnings": valuation_warning_rows,
     }
     pending = anchors[anchors["anchor_financial_check"].eq("NOT_FETCHED")]
-    nav_frame = pd.read_csv(nav_path).tail(60) if nav_path.exists() else pd.DataFrame()
+    # Keep the complete forward ledger so the site can compare the strategy
+    # with a benchmark from the actual restart date, not just the latest 60 rows.
+    nav_frame = pd.read_csv(nav_path) if nav_path.exists() else pd.DataFrame()
     nav_history = nav_frame.to_dict("records")
     latest_nav = nav_frame.iloc[-1] if not nav_frame.empty else pd.Series(dtype=float)
+    benchmark = _benchmark_history(nav_frame["date"].astype(str).tolist() if not nav_frame.empty else [])
     data = {
         "asOf": str(summary["as_of_date"]),
         "returnDate": str(nav_frame.iloc[-1]["date"]) if not nav_frame.empty else str(summary["as_of_date"]),
@@ -589,6 +656,7 @@ def export_portfolio_site_data(output_dir: Path, destination: Path) -> Path:
             "cashDividendReturn": _number(row.get("cash_dividend_return", 0.0)),
             "stockDividendReturn": _number(row.get("stock_dividend_return", 0.0)),
         } for row in nav_history],
+        "benchmark": benchmark,
         "pendingFinancials": pending["name"].dropna().astype(str).tolist(),
         "logic": [
             {"step": "01", "title": "先建立护城河锚", "body": "先要求细分行业领先，再用长期毛利率、ROE、收入韧性与现金转化识别品牌溢价或规模成本优势；这些是研究代理，不把高股息直接当护城河。"},
