@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
+from dotenv import load_dotenv
 
 from selection.moat_monitor import build_moat_monitor
 
@@ -28,6 +30,115 @@ NAV_DIVIDEND_COLUMNS = [
     "dividend_cash_per_unit", "cumulative_dividend_cash",
     "reinvested_dividend_cash", "pending_dividend_cash", "dividend_receivable",
 ]
+BENCHMARK_PATH = PROJECT_ROOT / "data/processed/index_benchmark.csv"
+BENCHMARK_CODE = "000300.SH"
+BENCHMARK_NAME = "沪深300"
+BENCHMARK_NAME_EN = "CSI 300"
+
+
+def _normalize_benchmark_dates(values: pd.Series) -> pd.Series:
+    raw_dates = values.astype(str).str.strip()
+    normalized = pd.to_datetime(raw_dates, format="%Y%m%d", errors="coerce")
+    normalized = normalized.fillna(pd.to_datetime(raw_dates, errors="coerce"))
+    return normalized.dt.strftime("%Y-%m-%d")
+
+
+def _refresh_benchmark_cache(nav_dates: list[str]) -> None:
+    """Best-effort refresh of missing CSI 300 dates; never fabricates values."""
+    if not nav_dates:
+        return
+    cached = pd.DataFrame()
+    if BENCHMARK_PATH.exists():
+        try:
+            cached = pd.read_csv(BENCHMARK_PATH)
+            if "trade_date" in cached:
+                cached["trade_date"] = _normalize_benchmark_dates(cached["trade_date"])
+        except (OSError, pd.errors.ParserError):
+            cached = pd.DataFrame()
+    cached_dates = set(cached.get("trade_date", pd.Series(dtype=str)).dropna().astype(str))
+    missing = [date for date in nav_dates if date not in cached_dates]
+    if not missing:
+        return
+    load_dotenv(PROJECT_ROOT / ".env")
+    token = os.getenv("TUSHARE_TOKEN") or os.getenv("TS_TOKEN") or os.getenv("TUSHARE_API_TOKEN")
+    if not token:
+        return
+    try:
+        import tushare as ts
+        ts.set_token(token)
+        raw = ts.pro_api().index_daily(
+            ts_code=BENCHMARK_CODE,
+            start_date=min(nav_dates).replace("-", ""),
+            end_date=max(nav_dates).replace("-", ""),
+        )
+    except Exception:
+        return
+    if raw is None or raw.empty or "trade_date" not in raw or "close" not in raw:
+        return
+    raw = raw.copy()
+    raw["trade_date"] = _normalize_benchmark_dates(raw["trade_date"])
+    merged = pd.concat([cached, raw], ignore_index=True) if not cached.empty else raw
+    merged = merged.drop_duplicates(["trade_date", "ts_code"] if "ts_code" in merged else ["trade_date"], keep="last")
+    merged = merged.sort_values("trade_date")
+    BENCHMARK_PATH.parent.mkdir(parents=True, exist_ok=True)
+    merged.to_csv(BENCHMARK_PATH, index=False, encoding="utf-8-sig")
+
+
+def _benchmark_history(nav_dates: list[str]) -> dict:
+    """Build a same-date, unit-1 CSI 300 price proxy for the public site.
+
+    The benchmark intentionally uses the raw index close, not a dividend-adjusted
+    series.  Missing dates are reported explicitly instead of being filled from
+    the portfolio or treated as zero returns.
+    """
+    result = {
+        "code": BENCHMARK_CODE,
+        "name": BENCHMARK_NAME,
+        "nameEn": BENCHMARK_NAME_EN,
+        "basis": "沪深300原始收盘价指数代理，不含指数分红；与组合同一记录日归一化为1",
+        "basisEn": "CSI 300 raw close proxy, excluding index dividends; normalized to 1 on the same recorded dates",
+        "status": "UNAVAILABLE",
+        "startDate": nav_dates[0] if nav_dates else "",
+        "endDate": nav_dates[-1] if nav_dates else "",
+        "history": [],
+    }
+    if not nav_dates or not BENCHMARK_PATH.exists():
+        return result
+    try:
+        benchmark = pd.read_csv(BENCHMARK_PATH)
+    except (OSError, pd.errors.ParserError):
+        return result
+    required = {"trade_date", "close"}
+    if not required.issubset(benchmark.columns):
+        return result
+    benchmark = benchmark.copy()
+    benchmark["trade_date"] = _normalize_benchmark_dates(benchmark["trade_date"])
+    benchmark["close"] = pd.to_numeric(benchmark["close"], errors="coerce")
+    benchmark = benchmark[benchmark["close"].gt(0)].drop_duplicates("trade_date", keep="last")
+    by_date = benchmark.set_index("trade_date")["close"]
+    missing = [date for date in nav_dates if date not in by_date.index]
+    if missing:
+        result["status"] = "PARTIAL" if any(date in by_date.index for date in nav_dates) else "UNAVAILABLE"
+        result["missingDates"] = missing
+        return result
+    closes = [float(by_date.loc[date]) for date in nav_dates]
+    base = closes[0]
+    units = [close / base for close in closes]
+    history = []
+    for index, (date, unit) in enumerate(zip(nav_dates, units)):
+        previous = units[index - 1] if index else 1.0
+        history.append({
+            "date": date,
+            "nav": unit,
+            "dailyReturn": unit / previous - 1 if previous else 0.0,
+        })
+    result.update({
+        "status": "OK",
+        "history": history,
+        "startDate": nav_dates[0],
+        "endDate": nav_dates[-1],
+    })
+    return result
 
 
 def _allocation_change_reason(change_type: str, bucket: str, detail: str = "") -> str:
@@ -540,9 +651,14 @@ def export_portfolio_site_data(output_dir: Path, destination: Path) -> Path:
         "valuationWarnings": valuation_warning_rows,
     }
     pending = anchors[anchors["anchor_financial_check"].eq("NOT_FETCHED")]
-    nav_frame = pd.read_csv(nav_path).tail(60) if nav_path.exists() else pd.DataFrame()
+    # Keep the complete forward ledger so the site can compare the strategy
+    # with a benchmark from the actual restart date, not just the latest 60 rows.
+    nav_frame = pd.read_csv(nav_path) if nav_path.exists() else pd.DataFrame()
     nav_history = nav_frame.to_dict("records")
     latest_nav = nav_frame.iloc[-1] if not nav_frame.empty else pd.Series(dtype=float)
+    nav_dates = nav_frame["date"].astype(str).tolist() if not nav_frame.empty else []
+    _refresh_benchmark_cache(nav_dates)
+    benchmark = _benchmark_history(nav_dates)
     data = {
         "asOf": str(summary["as_of_date"]),
         "returnDate": str(nav_frame.iloc[-1]["date"]) if not nav_frame.empty else str(summary["as_of_date"]),
@@ -589,6 +705,7 @@ def export_portfolio_site_data(output_dir: Path, destination: Path) -> Path:
             "cashDividendReturn": _number(row.get("cash_dividend_return", 0.0)),
             "stockDividendReturn": _number(row.get("stock_dividend_return", 0.0)),
         } for row in nav_history],
+        "benchmark": benchmark,
         "pendingFinancials": pending["name"].dropna().astype(str).tolist(),
         "logic": [
             {"step": "01", "title": "先建立护城河锚", "body": "先要求细分行业领先，再用长期毛利率、ROE、收入韧性与现金转化识别品牌溢价或规模成本优势；这些是研究代理，不把高股息直接当护城河。"},
