@@ -1,12 +1,10 @@
-# A-Share Margin of Safety & Global Pricing Power Strategy
+# A-Share Margin of Safety Strategy
 
 **Machines search. Humans judge. Rules execute. Markets verify.**
 
-A research framework for finding A-share companies that combine a defensible margin of safety with durable value-capture and pricing power.
+A research framework for finding A-share companies with a defensible margin of safety, using normalized owner earnings, cash-flow quality, balance-sheet strength, five-scenario DCF valuation and falsifiable moat evidence.
 
-The system first establishes valuation boundaries through normalized owner earnings, cash-flow quality, balance-sheet strength and five-scenario DCF analysis. It then tests whether a company can retain economic value through brand strength, cost leadership, technology, distribution, scarce assets, switching costs or a defensible position in global industry structures.
-
-“Global pricing power” does not mean investing in global equities or selecting companies solely by overseas revenue. It refers to the ability of an A-share company to defend margins, pass through costs and retain value in a broad competitive environment.
+The system first establishes valuation boundaries through normalized owner earnings, cash-flow quality, balance-sheet strength and five-scenario DCF analysis. It then records moat hypotheses, dated evidence, monitoring indicators and invalidation signals as a separate research workflow; a low valuation alone is never treated as proof of a durable advantage.
 
 The project is deterministic Python plus human research records today. Optional LLM-assisted research is a future idea, not a runtime dependency.
 
@@ -21,7 +19,7 @@ This public documentation snapshot is dated **2026-07-17**, the latest completed
 - **Coverage:** 5,522 A-shares scanned; 202 securities passed financial review and had complete inputs for this snapshot.
 - **Screening:** 15 companies passed the current defensive-anchor gates; the public research queue below shows 8 ranked rows.
 - **Valuation:** 202 five-rate owner-earnings DCF records were generated.
-- **Pricing-power evidence:** 10 falsifiable moat registry records are maintained as evidence about durable value capture; a radar-health snapshot is available.
+- **Moat evidence:** 10 falsifiable moat registry records are maintained as research hypotheses about durable value capture; a radar-health snapshot is available.
 - **Forward verification:** the NAV record starts on 2026-07-15 and includes a raw-close CSI 300 comparison.
 - **Public display:** the bilingual read-only website is available at the link above; these counts describe one snapshot, not a permanent coverage guarantee.
 
@@ -35,7 +33,7 @@ The following queue is ranked by the implemented anchor score among the 202 fina
 
 **Snapshot date: 2026-07-17.** Full public fields are preserved in [`docs/public-screening-snapshot.csv`](docs/public-screening-snapshot.csv).
 
-| Rank | Ticker | Company | Industry | Score | Base DCF margin | Financial/data gate | Screen status | Pricing-power/moat proxy status |
+| Rank | Ticker | Company | Industry | Score | Base DCF margin | Financial/data gate | Screen status | Moat proxy status |
 | ---: | --- | --- | --- | ---: | ---: | --- | --- | --- |
 | 1 | `600519.SH` | 贵州茅台 | Food & beverage | 73.9 | -23.5% | `PASS_CASH_EARNINGS` | `WATCH` | `BRAND_PRICING_POWER_PROXY` |
 | 2 | `002032.SZ` | 苏泊尔 | Household appliances | 73.4 | -6.9% | `PASS_CASH_EARNINGS` | `WATCH` | `SCALE_COST_LEADER_PROXY` |
@@ -46,25 +44,25 @@ The following queue is ranked by the implemented anchor score among the 202 fina
 | 7 | `300760.SZ` | 迈瑞医疗 | Healthcare | 71.5 | -1.8% | `PASS_CASH_EARNINGS` | `WATCH` | `BRAND_PRICING_POWER_PROXY` |
 | 8 | `300979.SZ` | 华利集团 | Textile manufacturing | 70.4 | +24.6% | `PASS_CASH_EARNINGS` | `WATCH` | `POSITION_ONLY_REVIEW` |
 
-> **Status guide:** `WATCH` keeps a candidate in the research/observation queue; `DEFENSIVE_ELIGIBLE` means all current stable-anchor gates passed; `PASS_CASH_EARNINGS` means normalized owner earnings and normalized FCF passed the cash-earnings gate. `BRAND_PRICING_POWER_PROXY` and `SCALE_COST_LEADER_PROXY` are machine proxies; `POSITION_ONLY_REVIEW` means only an industry-position proxy passed; `NO_POSITION_EVIDENCE` means no position-based proxy passed. None of these proxy labels is human-confirmed pricing-power or moat evidence.
+> **Status guide:** `WATCH` keeps a candidate in the research/observation queue; `DEFENSIVE_ELIGIBLE` means all current stable-anchor gates passed; `PASS_CASH_EARNINGS` means normalized owner earnings and normalized FCF passed the cash-earnings gate. `BRAND_PRICING_POWER_PROXY` and `SCALE_COST_LEADER_PROXY` are machine proxies; `POSITION_ONLY_REVIEW` means only an industry-position proxy passed; `NO_POSITION_EVIDENCE` means no position-based proxy passed. None of these proxy labels is human-confirmed moat evidence.
 
 ## How this system finds opportunities
 
-The system does not start with a hot industry and then search for stocks, and it does not mechanically buy low-valuation companies. It asks two linked questions: does the current price provide a defensible margin of safety, and can the company capture and retain value through durable pricing power? It intersects current valuation and financial quality with future-demand research to find companies whose expectations are low today while their future profit pool may improve.
+The system does not start with a hot industry and then search for stocks, and it does not mechanically buy low-valuation companies. It intersects current valuation and financial quality with future-demand research and falsifiable moat evidence to find companies whose expectations are low today while their future profit pool may improve.
 
 ```mermaid
 flowchart LR
     A["All A-shares"] --> B["Financial quality and<br/>low-valuation screen"]
     B --> C["Owner earnings and<br/>five-scenario DCF margin of safety"]
     C --> D["Future demand and<br/>profit-pool research"]
-    D --> E["Global pricing power and<br/>moat evidence review"]
+    D --> E["Moat and<br/>value-capture review"]
     E --> F["Evidence<br/>state"]
     F --> G["Rule-based<br/>position"]
     G --> H["T+1 forward<br/>NAV"]
     H --> I["CSI 300<br/>comparison"]
 ```
 
-The first leg searches for valuation support, owner earnings, cash-flow conversion, balance-sheet quality, survivability, data completeness and industry position across the full A-share universe. The second leg asks where policy, bottlenecks, demand and profit pools may improve, then tests whether a structural advantage could defend value capture. The intersection—not either leg alone—creates the research candidate pool. Global pricing power is not a single quantitative factor and still requires human evidence review.
+The first leg searches for valuation support, owner earnings, cash-flow conversion, balance-sheet quality, survivability, data completeness and industry position across the full A-share universe. The second leg asks where policy, bottlenecks, demand and profit pools may improve, then records the structural advantage, monitoring indicators and invalidation signals in the moat evidence workflow. The intersection—not either leg alone—creates the research candidate pool.
 
 ## Why this project exists
 
@@ -87,31 +85,15 @@ These boundaries also mean that DCF and radar outputs are machine aids for human
 
 The practical question is not “what is cheap?” or “what is fashionable?” It is whether a company has current cash-earnings support and a credible path to a better future profit pool. Policy documents, industrial planning, demand signals and milestone evidence define research directions; policy alignment alone is never a buy signal.
 
-### Global pricing power requires falsifiable moat evidence
+### Moat as value-capture analysis
 
-Pricing power is the economic outcome; a moat is the structural mechanism that may sustain it. Industry growth does not mean every participant benefits, and revenue growth or market share alone does not prove durable pricing power. The moat file asks which company can capture and retain an expanding industry profit pool through brand, technology, cost leadership, scarce resources, channels, switching costs, standards, licences or ecosystem position. It also records what would disprove that mechanism rather than simply selecting the largest company.
+Industry growth does not mean every participant benefits. Revenue growth or market share alone does not prove a durable moat. The moat file asks which company can capture and retain an expanding industry profit pool through brand, pricing, cost advantage, switching costs, network effects, scarce resources or licences, channel, scale or institutional access. It also records what would disprove that mechanism rather than simply selecting the largest company.
 
 The registry and append-only evidence ledger record the mechanism, why it is hard to copy, dated traceable primary sources, observable indicators, invalidation signals, review dates and the configured portfolio action. Financial metrics test economic results; they do not automatically promote a `DRAFT` thesis to `INTACT`.
 
 <p align="center"><img src="docs/assets/en-moat-thesis.png" alt="English moat thesis, monitoring indicators and invalidation signals" width="900"></p>
 
 The moat view makes the thesis falsifiable: it states what is hard to copy, what should be monitored and what would weaken the evidence.
-
-### What “Global Pricing Power” Means
-
-The global dimension describes the competitive environment, not the listing venue or an overseas-revenue quota. An A-share company may qualify through direct global revenue, import substitution, internationally competitive manufacturing, a globally priced resource or domestic pricing power protected by technology, certification or distribution. The evidence must show value capture, margin retention or cost pass-through and must include disconfirming signals.
-
-| Mechanism | What the evidence should test |
-| --- | --- |
-| Brand and channel | Trust, distribution and mindshare defend price or repeat demand. |
-| Technology and standards | Patents, certification, performance or ecosystem lock-in limit substitution. |
-| Cost and supply chain | Scale, manufacturing efficiency or control of scarce inputs preserves margins. |
-| Resources and licences | Scarcity, regulation or access creates a defensible economic position. |
-| Switching costs and networks | Compatibility, installed base or service ecosystems retain customers. |
-
-A strong moat hypothesis is not automatically global pricing power, and no ranked company has confirmed pricing power solely because a proxy passed.
-
-**Two-gate discipline:** a margin of safety without durable value capture may be a value trap; pricing power without a margin of safety may describe a strong company purchased at an unattractive price.
 
 ### Five-scenario DCF as the margin-of-safety boundary
 
@@ -183,7 +165,7 @@ Public institution references are curated/static inputs in `config/valuation-rep
 
 ## Portfolio structure
 
-- **Anchors:** durable current cash economics, industry position and pricing-power/moat proxies; 65% reference budget and 15% per-name cap.
+- **Anchors:** durable current cash economics, industry position and moat proxies; 65% reference budget and 15% per-name cap.
 - **Future options:** policy-linked demand and dated milestones; 2.5% → 5% → 7.5% ladder inside a 25% sleeve cap.
 - **Cash:** at least 10% under the current policy, and more when evidence or valuation standards are not met.
 
