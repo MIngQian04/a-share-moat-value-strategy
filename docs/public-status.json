@@ -1,0 +1,21 @@
+{
+  "snapshot_date": "2026-07-17",
+  "securities_scanned": 5522,
+  "financial_reviewed": 202,
+  "financial_complete": 202,
+  "ranked_screen_rows": 8,
+  "anchor_eligible": 15,
+  "dcf_valuations_generated": 202,
+  "moat_registry_records": 10,
+  "forward_nav_start_date": "2026-07-15",
+  "forward_nav_end_date": "2026-07-17",
+  "radar_health_available": true,
+  "radar_health_as_of": "2026-07-16",
+  "source_files": [
+    "outputs/barbell-strategy/portfolio_summary.csv",
+    "outputs/barbell-strategy/anchor_screen.csv",
+    "outputs/barbell-strategy/portfolio_nav_history.csv",
+    "outputs/barbell-strategy/moat_radar_health.csv",
+    "config/moat-thesis-registry.csv"
+  ]
+}

@@ -46,25 +46,105 @@ The radar separately scans announcement and financial anomalies. Its alerts are 
 
 ## Owner-earnings DCF
 
-For each annual period, owner earnings are calculated as:
+Implementation: [`valuation/owner_earnings.py`](../valuation/owner_earnings.py), with point-in-time callers in [`scripts/run_barbell_strategy.py`](../scripts/run_barbell_strategy.py) and [`scripts/run_future_demand_screen.py`](../scripts/run_future_demand_screen.py).
 
-```text
-owner earnings = net income + depreciation/amortisation - maintenance capex
-maintenance capex = min(capex, 1.10 × depreciation) when depreciation is positive
-```
+### Annual owner earnings
 
-The normalised owner-earnings input is the median of the latest three annual observations. Net cash is cash less the configured debt fields. The DCF projects five years of capped growth and a terminal value:
+The implementation keeps year-end (`end_date` ending in `1231`) statement rows and, when `ann_date` is present, keeps the latest announced row for each period. It retains the latest five annual periods available to the calculation. For each period, the fields are:
 
-```text
-PV = Σ earnings_t / (1 + r)^t
-terminal value = earnings_5 × (1 + g_terminal) / (r - g_terminal)
-equity value = PV + terminal value / (1 + r)^5 + net cash
-per-share value = equity value / total shares
-```
+$$
+\begin{aligned}
+NI_t &= \text{n\_income\_attr\_p, falling back to n\_income}\\
+D_t &= \sum(\text{depr\_fa\_coga\_dpba},\ \text{amort\_intang\_assets},\ \text{lt\_amort\_deferred\_exp})\\
+MCapEx_t &= \min(CapEx_t,\ 1.10\times D_t)\quad\text{when }CapEx_t\text{ is present and }D_t>0\\
+OE_t &= NI_t + D_t - MCapEx_t
+\end{aligned}
+$$
 
-The default growth is 3%, clipped to -2%–6%. Terminal growth is 2.5%. The base required return is 10%, and the five sensitivity rates move by one percentage point: 8%, 9%, 10%, 11% and 12%. The rate is never allowed to fall below terminal growth plus two percentage points.
+Here `CapEx_t` is `c_pay_acq_const_fiolta`. If the capex field is unavailable, the period's owner earnings are unavailable; if depreciation is not positive, the code uses reported capex directly as the maintenance-capex proxy. Operating cash flow is **not** substituted into the owner-earnings formula. It is used separately to calculate `FCF_t = OCF_t - CapEx_t` and to test cash-earnings quality. There is no separate working-capital-change term: any working-capital effect must already be reflected in the source statements.
 
-The base value is the mechanical DCF gate used by the strategy. The other four values are sensitivity references; they do not alter the underlying operating inputs.
+The normalized starting value is the median of the latest three available owner-earnings observations:
+
+$$
+OE_0 = \operatorname{median}(OE_{T-2}, OE_{T-1}, OE_T)
+$$
+
+The DCF returns unavailable when normalized owner earnings or shares are non-positive. Callers pass Tushare `total_share` multiplied by 10,000 to convert the reported unit into shares. Net cash is:
+
+$$
+NetCash = money\_cap - (st\_borr + lt\_borr + bond\_payable + non\_cur\_liab\_due\_1y)
+$$
+
+Missing cash is treated as zero; missing individual debt fields are omitted from the debt sum.
+
+### Forecast and present value
+
+Forecast owner earnings use a constant, bounded growth rate:
+
+$$
+OE_t = OE_0(1+g)^t,\qquad t=1,\ldots,N
+$$
+
+The default `g` is 3%, clipped to the implemented range −2% to 6%, and `N` is five years. Explicit forecast value is:
+
+$$
+PV_{forecast}=\sum_{t=1}^{N}\frac{OE_t}{(1+r)^t}
+$$
+
+where `r` is the scenario discount rate and `N=5` in the default pipeline.
+
+### Terminal value, equity value and per-share value
+
+The terminal growth rate is `g∞ = 2.5%`. The code applies a required-return floor `r = max(input r, g∞ + 2%)` before calculating:
+
+$$
+TV_N=\frac{OE_N(1+g_\infty)}{r-g_\infty},\qquad
+PV_{terminal}=\frac{TV_N}{(1+r)^N}
+$$
+
+Then:
+
+$$
+EquityValue=PV_{forecast}+PV_{terminal}+NetCash
+$$
+
+$$
+IntrinsicValuePerShare=\frac{EquityValue}{SharesOutstanding}
+$$
+
+The value is floored at zero after division. This is an operating-company owner-earnings model; it is not a residual-income model for financial companies.
+
+### Margin of safety convention
+
+The screening callers align the market price to the same point-in-time row and calculate the displayed margin as:
+
+$$
+Margin_{model}=\frac{IntrinsicValuePerShare}{MarketClose}-1
+$$
+
+This is the model's upside-versus-close convention, not the textbook `(intrinsic value − price) / intrinsic value` convention. A positive number means the scenario value is above the aligned market close; missing price or value produces an unavailable margin.
+
+### Five discount-rate scenarios
+
+The five displayed cases hold normalized owner earnings, net cash, shares, growth, terminal growth and forecast length constant. Only the discount rate changes:
+
+| Scenario | Discount rate |
+| --- | ---: |
+| `VERY_OPTIMISTIC` | 8% |
+| `OPTIMISTIC` | 9% |
+| `BASE` | 10% |
+| `CAUTIOUS` | 11% |
+| `VERY_PESSIMISTIC` | 12% |
+
+The base value is the repeatable mechanical DCF gate. The other four values expose sensitivity for review; they do not silently rewrite the operating forecast to manufacture a wider range. Tests in [`tests/test_owner_earnings.py`](../tests/test_owner_earnings.py) verify the five rates, ordering and BASE-field compatibility.
+
+### Interpretation and limitations
+
+- Owner earnings are normalized estimates, not reported accounting line items.
+- Growth is bounded but still uncertain; the terminal value can represent a large share of total value.
+- Net cash and share count depend on the quality and timing of source data.
+- DCF does not prove that a moat exists, and a low price can still be a value trap.
+- The 10% base case is a repeatable threshold for the strategy, not a guaranteed fair value.
 
 ## Position states and cash
 

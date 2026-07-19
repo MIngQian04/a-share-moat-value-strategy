@@ -10,6 +10,36 @@
 
 > **仅供研究。** 不连接券商，不自动下单。
 
+## 当前项目状态
+
+这份公开文档快照日期为 **2026-07-17**，对应当前快照中最近一个已完成交易日。快照不包含凭据、私人实际成交或浏览器本地账户数据。
+
+- **覆盖范围：** 扫描 5,522 只 A 股；其中 202 只通过财务复核，并具备可完成估值的输入。
+- **筛选结果：** 15 家公司通过当前稳定锚仓门槛；下方公开研究队列展示其中 8 行排名。
+- **估值：** 已生成 202 份五档所有者收益 DCF 记录。
+- **护城河档案：** 当前维护 10 条可证伪护城河注册表记录，并有雷达健康快照。
+- **前瞻验证：** NAV 记录从 2026-07-15 开始，并包含原始收盘价沪深 300 对比。
+- **公开展示：** 上方链接提供双语只读网站；这些数字是单个快照，不是永久覆盖承诺。
+
+汇总数字保存在 [`docs/public-status.json`](docs/public-status.json)，由 [`scripts/build_public_readme_snapshot.py`](scripts/build_public_readme_snapshot.py) 根据本地最新哑铃策略输出生成。
+
+### 最新筛选概览
+
+下表是在快照中 202 行已完成财务复核记录内，按实现的锚仓评分排序的研究队列。基准 DCF 安全边际按代码实际口径计算：`dcf_base_value_per_share / market close - 1`。排名用于确定人工研究优先级，不代表系统已经确认护城河，也不构成自动买入信号。
+
+**快照日期：2026-07-17。** 完整的公开字段保存在 [`docs/public-screening-snapshot.csv`](docs/public-screening-snapshot.csv)。
+
+| 排名 | 代码 | 公司 | 行业 | 评分 | 基准 DCF 安全边际 | 财务/数据门 | 筛选状态 | 护城河代理状态 |
+| ---: | --- | --- | --- | ---: | ---: | --- | --- | --- |
+| 1 | `600519.SH` | 贵州茅台 | 食品饮料 | 73.9 | -23.5% | `PASS_CASH_EARNINGS` | `WATCH` | `BRAND_PRICING_POWER_PROXY` |
+| 2 | `002032.SZ` | 苏泊尔 | 家用电器 | 73.4 | -6.9% | `PASS_CASH_EARNINGS` | `WATCH` | `SCALE_COST_LEADER_PROXY` |
+| 3 | `000568.SZ` | 泸州老窖 | 食品饮料 | 73.2 | +68.6% | `PASS_CASH_EARNINGS` | `WATCH` | `NO_POSITION_EVIDENCE` |
+| 4 | `603195.SH` | 公牛集团 | 轻工制造 | 71.7 | -11.2% | `PASS_CASH_EARNINGS` | `WATCH` | `BRAND_PRICING_POWER_PROXY` |
+| 5 | `002027.SZ` | 分众传媒 | 传媒 | 71.7 | -3.6% | `PASS_CASH_EARNINGS` | `WATCH` | `POSITION_ONLY_REVIEW` |
+| 6 | `000651.SZ` | 格力电器 | 家用电器 | 71.6 | +113.3% | `PASS_CASH_EARNINGS` | `DEFENSIVE_ELIGIBLE` | `SCALE_COST_LEADER_PROXY` |
+| 7 | `300760.SZ` | 迈瑞医疗 | 医药生物 | 71.5 | -1.8% | `PASS_CASH_EARNINGS` | `WATCH` | `BRAND_PRICING_POWER_PROXY` |
+| 8 | `300979.SZ` | 华利集团 | 纺织制造 | 70.4 | +24.6% | `PASS_CASH_EARNINGS` | `WATCH` | `POSITION_ONLY_REVIEW` |
+
 ## 这个系统如何寻找机会
 
 系统不是先指定热门行业再寻找股票，也不是只根据低估值机械买入，而是将跨行业估值筛选与未来需求研究交叉，寻找当前预期较低、但未来利润池可能改善的公司。
@@ -182,7 +212,8 @@ flowchart TD
 需要 Python 3.10+、本地 Tushare Token；只有构建独立网站时才需要 Node.js/npm。不同 Tushare 接口可能需要不同权限。
 
 ```bash
-cd /Users/ming/Desktop/workspace/a-share-cycle-rotation-strategy
+git clone https://github.com/MIngQian04/a-share-moat-value-strategy.git
+cd a-share-moat-value-strategy
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
@@ -196,6 +227,7 @@ python3 scripts/refresh_rotation_market_data.py
 python3 scripts/run_moat_radar.py
 python3 scripts/run_future_demand_screen.py --refresh-financials
 python3 scripts/run_barbell_strategy.py
+python3 scripts/build_public_readme_snapshot.py
 ```
 
 数据源不可用时保留缓存并报告不可用，不把缺失数据变成零风险或零价值。只使用缓存检查时：
@@ -233,7 +265,7 @@ python3 scripts/check_public_release.py
 
 ## 方法与文档
 
-详细实现见 [docs/METHODOLOGY.md](docs/METHODOLOGY.md)，涵盖 point-in-time 数据、估值、政策/未来需求研究、可证伪护城河、证据状态、仓位变化、T+1、分红账本、基准构造、缺失数据和可复现边界。
+详细实现见 [中文方法说明](docs/METHODOLOGY.zh-CN.md) 与 [English methodology](docs/METHODOLOGY.md)，涵盖 point-in-time 数据、已实现的所有者收益 DCF 公式、政策/未来需求研究、可证伪护城河、证据状态、仓位变化、T+1、分红账本、基准构造、缺失数据和可复现边界。
 
 更多资料：[架构](docs/ARCHITECTURE.md) · [运行手册](docs/RUNBOOK.md) · [未来证据流程](docs/FUTURE_EVIDENCE_WORKFLOW.md) · [历史研究说明](docs/LEGACY_RESEARCH_NOTICE.md) · [可复现说明](docs/REPRODUCIBILITY.md)。
 
