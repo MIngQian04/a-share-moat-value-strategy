@@ -23,6 +23,8 @@ This public documentation snapshot is dated **2026-07-17**, the latest completed
 
 The aggregate counts are stored in [`docs/public-status.json`](docs/public-status.json), generated from the latest local barbell outputs by [`scripts/build_public_readme_snapshot.py`](scripts/build_public_readme_snapshot.py).
 
+**Current screening funnel:** 5,522 securities scanned → 202 financially reviewed and valuation-ready → 15 meeting the current anchor threshold → 8 displayed in the public research queue.
+
 ### Latest Screening Snapshot
 
 The following queue is ranked by the implemented anchor score among the 202 financially reviewed rows in the snapshot. The base DCF margin is the model's `dcf_base_value_per_share / market close - 1` convention. The ranking prioritizes human research; it does not confirm a moat and is not an automatic buy signal.
@@ -39,6 +41,8 @@ The following queue is ranked by the implemented anchor score among the 202 fina
 | 6 | `000651.SZ` | 格力电器 | Household appliances | 71.6 | +113.3% | `PASS_CASH_EARNINGS` | `DEFENSIVE_ELIGIBLE` | `SCALE_COST_LEADER_PROXY` |
 | 7 | `300760.SZ` | 迈瑞医疗 | Healthcare | 71.5 | -1.8% | `PASS_CASH_EARNINGS` | `WATCH` | `BRAND_PRICING_POWER_PROXY` |
 | 8 | `300979.SZ` | 华利集团 | Textile manufacturing | 70.4 | +24.6% | `PASS_CASH_EARNINGS` | `WATCH` | `POSITION_ONLY_REVIEW` |
+
+> **Status guide:** `WATCH` keeps a candidate in the research/observation queue; `DEFENSIVE_ELIGIBLE` means all current stable-anchor gates passed; `PASS_CASH_EARNINGS` means normalized owner earnings and normalized FCF passed the cash-earnings gate. `BRAND_PRICING_POWER_PROXY` and `SCALE_COST_LEADER_PROXY` are machine proxies; `POSITION_ONLY_REVIEW` means only an industry-position proxy passed; `NO_POSITION_EVIDENCE` means no position-based proxy passed. None of these proxy labels is human-confirmed moat evidence.
 
 ## How this system finds opportunities
 
@@ -60,26 +64,9 @@ The first leg searches for valuation support, owner earnings, cash-flow conversi
 
 ## Why this project exists
 
-Investment research needs consistency without pretending that uncertain futures are clean numbers. This framework makes the division of labour explicit:
-
-- Machines process a broad market consistently and expose valuation, cash-flow and data-quality exceptions.
-- Humans validate or reject uncertain future-demand and moat evidence, identify value traps and document the reason.
-- Rules translate evidence states, valuation boundaries and portfolio limits into target weights.
-- Forward market observations verify the complete process instead of selecting a flattering backtest after the fact.
-
-The goal is an inspectable research process, not a promise to predict every price move.
+Investment research needs consistency without pretending that uncertain futures are clean numbers. This framework uses machines to process a broad market, humans to validate future-demand and moat evidence, rules to translate those states into target weights, and forward observations to verify the complete process. The goal is an inspectable research process, not a promise to predict every price move.
 
 ## Machine, human, rules, market
-
-```mermaid
-flowchart LR
-    A["Machine<br/>search"] --> B["Candidate<br/>pool"]
-    B --> C["Human<br/>validate or reject evidence"]
-    C --> D["Evidence<br/>state"]
-    D --> E["Rules<br/>generate target"]
-    E --> F["T+1<br/>execution proxy"]
-    F --> G["Market<br/>forward NAV"]
-```
 
 | Layer | Current responsibility | Boundary |
 | --- | --- | --- |
@@ -87,6 +74,8 @@ flowchart LR
 | **Human — validate** | Judge future demand, policy relevance, industry risk and dated primary evidence; confirm or reject the thesis and record why. | Not unrestricted discretionary stock picking; later information cannot rewrite historical NAV. |
 | **Rules — generate** | Convert validated evidence states, DCF boundaries and sleeve limits into anchor, future-option and cash weights. | Produces a model target and open-price proxy; it never sends a brokerage order. |
 | **Market — verify** | Record forward daily NAV and compare it with a raw-close CSI 300 proxy. | The live sample is short and the benchmark excludes index dividends. |
+
+These boundaries also mean that DCF and radar outputs are machine aids for human review: later information cannot rewrite historical NAV, and no workflow sends a brokerage order.
 
 ## Core capabilities
 
@@ -172,38 +161,11 @@ The screenshots in this README are user-provided public-site captures from 2026-
 
 Public institution references are curated/static inputs in `config/valuation-repair-briefs.json`; the website does not automatically search the web on every visit. The website source is an independent nested repository ignored by this root repository.
 
-## End-to-end workflow
-
-```mermaid
-flowchart TD
-    A["All A-share companies"] --> B["Point-in-time financial and value screen"]
-    B --> C["Policy and future-demand research"]
-    C --> D["Human moat and primary-evidence validation"]
-    D --> E["Five-rate DCF boundary"]
-    E --> F["Rule-generated target weights"]
-    F --> G["T+1 target and model-open proxy"]
-    G --> H["Forward NAV and dividend ledger"]
-    H --> I["CSI 300 comparison and feedback"]
-```
-
 ## Portfolio structure
 
 - **Anchors:** durable current cash economics, industry position and moat proxies; 65% reference budget and 15% per-name cap.
 - **Future options:** policy-linked demand and dated milestones; 2.5% → 5% → 7.5% ladder inside a 25% sleeve cap.
 - **Cash:** at least 10% under the current policy, and more when evidence or valuation standards are not met.
-
-## Human and machine responsibility boundary
-
-| Responsibility | Machine | Human |
-| --- | :---: | :---: |
-| Scan financial data and calculate screening metrics | Yes | Review exceptions |
-| Calculate owner-earnings DCF and sensitivities | Yes | Validate assumptions and context |
-| Detect announcements and financial anomalies | Yes | Interpret significance and source quality |
-| Map policy and future-demand questions | Support | Validate or reject the thesis |
-| Organise moat evidence and review dates | Yes | Confirm, challenge or update the thesis |
-| Generate model target weights | Yes | Use only documented overrides within policy |
-| Execute brokerage trades | No | Outside project scope |
-| Rewrite historical NAV with later information | No | No |
 
 The current repository contains deterministic Python screening, financial processing, DCF, evidence/radar rules, positions, T+1 NAV and benchmark comparison, plus static configuration-backed research briefs. It does **not** contain a DeepSeek, OpenAI or other LLM API runtime. LLM evidence summarisation, report extraction and contradiction detection remain planned or optional future work.
 

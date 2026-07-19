@@ -11,6 +11,12 @@
   "forward_nav_end_date": "2026-07-17",
   "radar_health_available": true,
   "radar_health_as_of": "2026-07-16",
+  "screening_funnel": {
+    "scanned": 5522,
+    "financial_reviewed_and_valuation_ready": 202,
+    "anchor_threshold": 15,
+    "public_research_queue": 8
+  },
   "source_files": [
     "outputs/barbell-strategy/portfolio_summary.csv",
     "outputs/barbell-strategy/anchor_screen.csv",
