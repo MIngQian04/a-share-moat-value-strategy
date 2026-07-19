@@ -202,10 +202,7 @@ flowchart TD
 
 公开机构参考来自 `config/valuation-repair-briefs.json` 的静态/人工整理内容；网站不会每次访问都自动联网搜索。网站源码是独立嵌套仓库，根仓库通过 `.gitignore` 排除。
 
-<p align="center"><img src="docs/assets/benchmark_comparison.png" alt="策略与沪深 300 基准对比" width="900"></p>
-<p align="center"><img src="docs/assets/nav_attribution_events.png" alt="前瞻 NAV 归因与分红事件" width="900"></p>
-
-以上是仓库快照，仅用于了解界面，不保证日期仍是最新。`docs/assets/` 目前还没有护城河详情、雷达健康和实际成交账本的专门截图。
+本 README 不嵌入旧项目的回测图表。上面的公开网站链接才是当前前瞻哑铃组合的展示入口；`docs/assets/` 目前还没有护城河详情、雷达健康和实际成交账本的专门截图。
 
 ## 快速开始
 
