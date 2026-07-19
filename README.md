@@ -10,6 +10,36 @@ The project is deterministic Python plus human research records today. Optional 
 
 > **Research project only.** It does not connect to a broker or place orders.
 
+## Project Status
+
+This public documentation snapshot is dated **2026-07-17**, the latest completed trading day in the committed snapshot. It contains no credentials, private fills or browser-local account data.
+
+- **Coverage:** 5,522 A-shares scanned; 202 securities passed financial review and had complete inputs for this snapshot.
+- **Screening:** 15 companies passed the current defensive-anchor gates; the public research queue below shows 8 ranked rows.
+- **Valuation:** 202 five-rate owner-earnings DCF records were generated.
+- **Moat records:** 10 falsifiable moat registry records are maintained; a radar-health snapshot is available.
+- **Forward verification:** the NAV record starts on 2026-07-15 and includes a raw-close CSI 300 comparison.
+- **Public display:** the bilingual read-only website is available at the link above; these counts describe one snapshot, not a permanent coverage guarantee.
+
+The aggregate counts are stored in [`docs/public-status.json`](docs/public-status.json), generated from the latest local barbell outputs by [`scripts/build_public_readme_snapshot.py`](scripts/build_public_readme_snapshot.py).
+
+### Latest Screening Snapshot
+
+The following queue is ranked by the implemented anchor score among the 202 financially reviewed rows in the snapshot. The base DCF margin is the model's `dcf_base_value_per_share / market close - 1` convention. The ranking prioritizes human research; it does not confirm a moat and is not an automatic buy signal.
+
+**Snapshot date: 2026-07-17.** Full public fields are preserved in [`docs/public-screening-snapshot.csv`](docs/public-screening-snapshot.csv).
+
+| Rank | Ticker | Company | Industry | Score | Base DCF margin | Financial/data gate | Screen status | Moat proxy status |
+| ---: | --- | --- | --- | ---: | ---: | --- | --- | --- |
+| 1 | `600519.SH` | 贵州茅台 | Food & beverage | 73.9 | -23.5% | `PASS_CASH_EARNINGS` | `WATCH` | `BRAND_PRICING_POWER_PROXY` |
+| 2 | `002032.SZ` | 苏泊尔 | Household appliances | 73.4 | -6.9% | `PASS_CASH_EARNINGS` | `WATCH` | `SCALE_COST_LEADER_PROXY` |
+| 3 | `000568.SZ` | 泸州老窖 | Food & beverage | 73.2 | +68.6% | `PASS_CASH_EARNINGS` | `WATCH` | `NO_POSITION_EVIDENCE` |
+| 4 | `603195.SH` | 公牛集团 | Light manufacturing | 71.7 | -11.2% | `PASS_CASH_EARNINGS` | `WATCH` | `BRAND_PRICING_POWER_PROXY` |
+| 5 | `002027.SZ` | 分众传媒 | Media | 71.7 | -3.6% | `PASS_CASH_EARNINGS` | `WATCH` | `POSITION_ONLY_REVIEW` |
+| 6 | `000651.SZ` | 格力电器 | Household appliances | 71.6 | +113.3% | `PASS_CASH_EARNINGS` | `DEFENSIVE_ELIGIBLE` | `SCALE_COST_LEADER_PROXY` |
+| 7 | `300760.SZ` | 迈瑞医疗 | Healthcare | 71.5 | -1.8% | `PASS_CASH_EARNINGS` | `WATCH` | `BRAND_PRICING_POWER_PROXY` |
+| 8 | `300979.SZ` | 华利集团 | Textile manufacturing | 70.4 | +24.6% | `PASS_CASH_EARNINGS` | `WATCH` | `POSITION_ONLY_REVIEW` |
+
 ## How this system finds opportunities
 
 The system does not start with a hot industry and then search for stocks, and it does not mechanically buy low-valuation companies. It intersects current valuation and financial quality with future-demand research to find companies whose expectations are low today while their future profit pool may improve.
@@ -182,7 +212,8 @@ The current repository contains deterministic Python screening, financial proces
 Requirements: Python 3.10+, a local Tushare token, and Node.js/npm only if you build the separate website. Different Tushare endpoints may require different permissions.
 
 ```bash
-cd /Users/ming/Desktop/workspace/a-share-cycle-rotation-strategy
+git clone https://github.com/MIngQian04/a-share-moat-value-strategy.git
+cd a-share-moat-value-strategy
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
@@ -196,6 +227,7 @@ python3 scripts/refresh_rotation_market_data.py
 python3 scripts/run_moat_radar.py
 python3 scripts/run_future_demand_screen.py --refresh-financials
 python3 scripts/run_barbell_strategy.py
+python3 scripts/build_public_readme_snapshot.py
 ```
 
 When a source is unavailable, keep the cache and report unavailable data; do not convert missing data into zero risk or zero value. For cache-only checks:
@@ -233,7 +265,7 @@ Raw caches, generated outputs, `.env` and website build artifacts are intentiona
 
 ## Methodology and documentation
 
-Detailed implementation notes live in [docs/METHODOLOGY.md](docs/METHODOLOGY.md): point-in-time data, valuation, policy/future-demand research, falsifiable moat theses, evidence states, position transitions, T+1 execution, dividend accounting, benchmark construction, missing-data handling and reproducibility limits.
+Detailed implementation notes live in [docs/METHODOLOGY.md](docs/METHODOLOGY.md) · [中文方法说明](docs/METHODOLOGY.zh-CN.md): point-in-time data, the implemented owner-earnings DCF formulas, policy/future-demand research, falsifiable moat theses, evidence states, position transitions, T+1 execution, dividend accounting, benchmark construction, missing-data handling and reproducibility limits.
 
 Further notes: [Architecture](docs/ARCHITECTURE.md) · [Runbook](docs/RUNBOOK.md) · [Future evidence workflow](docs/FUTURE_EVIDENCE_WORKFLOW.md) · [Legacy research notice](docs/LEGACY_RESEARCH_NOTICE.md) · [Reproducibility](docs/REPRODUCIBILITY.md).
 
