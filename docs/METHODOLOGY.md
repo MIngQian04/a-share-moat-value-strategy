@@ -1,6 +1,6 @@
-# Methodology: Margin of Safety & Global Pricing Power
+# Methodology
 
-This note records the methods implemented in the current barbell pipeline. The project has two linked gates: a **margin of safety** gate that tests price against conservative value boundaries, and a **global pricing power** gate that tests durable value capture through falsifiable moat evidence. It is intentionally narrower than a research manifesto: if a rule is not in the code or configuration, it is not described as an implemented feature.
+This note records the methods implemented in the current barbell pipeline. The five-scenario DCF establishes a **margin-of-safety** boundary, while moat evidence remains a separate falsifiable research hypothesis. It is intentionally narrower than a research manifesto: if a rule is not in the code or configuration, it is not described as an implemented feature.
 
 ## Point-in-time data discipline
 
@@ -20,10 +20,6 @@ The anchor screen combines:
 
 The screen creates a conservative research baseline. It does not claim that an industry leader automatically has an economic moat.
 
-### Two-gate interpretation
-
-The first gate asks whether normalized owner earnings, cash-earnings quality, balance-sheet strength, point-in-time discipline and the five-scenario DCF provide enough downside protection. The second asks whether future demand and profit-pool research identify a mechanism that can retain value in a broad competitive environment. Neither gate is sufficient alone: a margin of safety without durable value capture may be a value trap, while pricing power without a margin of safety may be a strong company purchased at an unattractive price.
-
 ## Policy and future demand
 
 `selection/policy_alignment.py` requires a national-plan source and a government URL containing `gov.cn` for policy eligibility. Policy is used to focus research on durable demand directions and possible profit pools. It is not a direct stock-return model.
@@ -32,9 +28,9 @@ Future-demand scores use demand certainty, bottleneck strength, value capture, e
 
 Future milestone records remain `UNVERIFIED` unless a dated, source-backed review changes them. Scripts do not silently promote `config/future-milestones.csv`.
 
-## Global pricing power and falsifiable moat evidence
+## Moat framework and evidence
 
-Pricing power is the economic outcome; a moat is the structural mechanism that may sustain it. A moat card is therefore a falsifiable business hypothesis: what advantage exists, why it is difficult to replicate, which operating outcomes should follow, what to monitor, what would contradict the thesis and when to review it. “Global” describes the competitive environment, not a requirement for high overseas revenue or direct investment in global equities. Evidence may involve brands, technology and standards, cost leadership, supply-chain control, scarce resources, licences, channels, switching costs or ecosystem position.
+A moat card is a falsifiable business hypothesis: what advantage exists, why it is difficult to replicate, which operating outcomes should follow, what to monitor, what would contradict the thesis and when to review it. Evidence may involve brands, technology and standards, cost leadership, supply-chain control, scarce resources, licences, channels, switching costs or ecosystem position.
 
 Trusted evidence types are company filings, government primary material and first-hand industry material. The evidence ledger is append-only and requires a source URL and evidence date. The monitor maps evidence direction to:
 
@@ -44,11 +40,11 @@ Trusted evidence types are company filings, government primary material and firs
 - `WEAKENED` when contradiction evidence is present;
 - `REVIEW_DUE` when the scheduled review date has passed.
 
-Financial results can validate the economic output of a moat, but financial metrics alone cannot promote a draft card or prove global pricing power. `config/moat-human-review.csv` records a human boolean for review status; that boolean is not a model allocation gate. Every mechanism must include value-capture evidence and disconfirming signals; no ranked company is confirmed solely because a machine proxy passed.
+Financial results can validate the economic output of a moat, but financial metrics alone cannot promote a draft card. `config/moat-human-review.csv` records a human boolean for review status; that boolean is not a model allocation gate. Every mechanism must include value-capture evidence and disconfirming signals; no ranked company is confirmed solely because a machine proxy passed.
 
 The radar separately scans announcement and financial anomalies. Its alerts are `PENDING_REVIEW`, and its health file distinguishes `OK`, `PARTIAL`, `UNAVAILABLE` and `OFFLINE` coverage. No alert is an automatic order instruction.
 
-## Margin-of-safety owner-earnings DCF
+## Owner-earnings DCF
 
 Implementation: [`valuation/owner_earnings.py`](../valuation/owner_earnings.py), with point-in-time callers in [`scripts/run_barbell_strategy.py`](../scripts/run_barbell_strategy.py) and [`scripts/run_future_demand_screen.py`](../scripts/run_future_demand_screen.py).
 
