@@ -70,6 +70,10 @@ Industry growth does not mean every participant benefits. Revenue growth or mark
 
 The registry and append-only evidence ledger record the mechanism, why it is hard to copy, dated traceable primary sources, observable indicators, invalidation signals, review dates and the configured portfolio action. Financial metrics test economic results; they do not automatically promote a `DRAFT` thesis to `INTACT`.
 
+<p align="center"><img src="docs/assets/en-moat-thesis.png" alt="English moat thesis, monitoring indicators and invalidation signals" width="900"></p>
+
+The moat view makes the thesis falsifiable: it states what is hard to copy, what should be monitored and what would weaken the evidence.
+
 ### Five-scenario DCF as a valuation boundary
 
 DCF is not a precise target-price machine. It establishes pessimistic, cautious, base, optimistic and very optimistic boundaries so a reader can ask whether the base-case margin of safety exists, whether optimism is already priced in, whether apparent cheapness could be a value trap, and when adding, holding, pausing or reducing should be considered.
@@ -85,6 +89,10 @@ DCF is not a precise target-price machine. It establishes pessimistic, cautious,
 | `VERY_PESSIMISTIC` | 12% |
 
 The base case remains the repeatable screening gate; the other rates expose the valuation range without silently changing operating inputs.
+
+<p align="center"><img src="docs/assets/en-dcf-sensitivity.png" alt="English public-site view of the five discount-rate DCF cases" width="900"></p>
+
+The product view keeps the neutral 10% case as the mechanical gate while exposing the full 8%–12% range for a documented conviction review.
 
 ### Evidence radar
 
@@ -114,22 +122,23 @@ Cash is a valid output when evidence, valuation or diversification limits do not
 5. Adjusted prices are never combined with separate dividends, preventing double counting.
 6. CSI 300 (`000300.SH`) uses an original-close price proxy, excludes index dividends and reports missing dates as `PARTIAL` or `UNAVAILABLE`.
 
+<p align="center"><img src="docs/assets/en-nav-vs-csi300.png" alt="English forward NAV curve compared with the CSI 300 unit proxy" width="900"></p>
+
+The chart is a live forward record from the same unit start date, not a legacy backtest or a promise of persistent outperformance.
+
 ## Product screenshots and public website
 
 Open the [read-only public site](https://ming-daily-portfolio.qianmin968641.chatgpt.site) to inspect the latest published snapshot. The separate `portfolio-site/` project presents model NAV, the current-return board, the next-session target board, full holdings, moat files, DCF sensitivity, valuation-repair summaries, curated public-institution references, radar health and browser-local actual-fill records. It never places a brokerage order.
 
-<table>
-  <tr>
-    <td width="50%"><img src="docs/assets/portfolio-site-overview.png" alt="Public portfolio site overview with cumulative and daily model NAV" width="100%"></td>
-    <td width="50%"><img src="docs/assets/execution-boards.png" alt="Public site showing the model NAV and period-return panel" width="100%"></td>
-  </tr>
-  <tr>
-    <td width="50%"><img src="docs/assets/company-moat-dcf.png" alt="China Mobile moat file with evidence status and DCF sensitivity entry" width="100%"></td>
-    <td width="50%"><img src="docs/assets/radar-moat-status.png" alt="Public moat detail view showing human-review and announcement-radar status" width="100%"></td>
-  </tr>
-</table>
+<p align="center"><img src="docs/assets/en-overview.png" alt="English public-site overview with NAV, return curve and current holdings" width="100%"></p>
 
-These images were captured from the public read-only site on 2026-07-19. The repository does not embed the old legacy backtest charts; the four images above are product views, not historical performance evidence. A clean standalone crop of the horizontal current/next board was not added because the public page keeps that board in a responsive side panel; the live site link above remains the authoritative view. A dedicated actual-fill ledger crop is not included because it requires visitor-local browser data.
+The overview ties the research process to the product: cumulative and daily NAV, the current-return basis, the next-session board, holdings, distribution statistics and the CSI 300 comparison are visible in one place.
+
+The valuation-repair view is a research aid rather than an automatic signal. It records why the market may discount a company, what could repair value, which factors could turn negative and how dated public institution references compare with the model.
+
+<p align="center"><img src="docs/assets/en-valuation-repair.png" alt="English valuation-repair summary with discount reasons, repair conditions, risks and public institution references" width="820"></p>
+
+The screenshots in this README are user-provided public-site captures from 2026-07-19. The actual-fill ledger is intentionally not shown because it contains visitor-local browser data.
 
 Public institution references are curated/static inputs in `config/valuation-repair-briefs.json`; the website does not automatically search the web on every visit. The website source is an independent nested repository ignored by this root repository.
 
