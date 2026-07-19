@@ -81,6 +81,12 @@ def build_snapshot(output_dir: Path, docs_dir: Path, ranking_rows: int = RANKING
         "forward_nav_end_date": nav_dates[-1] if nav_dates else "",
         "radar_health_available": True,
         "radar_health_as_of": str(radar_health.iloc[0]["as_of_date"]) if not radar_health.empty else "",
+        "screening_funnel": {
+            "scanned": as_int(current["anchor_universe_scanned"]),
+            "financial_reviewed_and_valuation_ready": as_int(current["anchor_financial_complete"]),
+            "anchor_threshold": as_int(current["anchor_eligible"]),
+            "public_research_queue": int(len(ranking)),
+        },
         "source_files": [
             "outputs/barbell-strategy/portfolio_summary.csv",
             "outputs/barbell-strategy/anchor_screen.csv",
