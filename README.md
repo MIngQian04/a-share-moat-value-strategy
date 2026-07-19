@@ -202,10 +202,7 @@ Open the [read-only public site](https://ming-daily-portfolio.qianmin968641.chat
 
 Public institutional references are curated/static inputs in `config/valuation-repair-briefs.json`; the site does not automatically search the web on every visit. The website source is an independent nested repository ignored by the root repository.
 
-<p align="center"><img src="docs/assets/benchmark_comparison.png" alt="Strategy and CSI 300 benchmark comparison" width="900"></p>
-<p align="center"><img src="docs/assets/nav_attribution_events.png" alt="Forward NAV attribution and dividend events" width="900"></p>
-
-These are repository snapshots for orientation, not a promise that the displayed dates are current. Dedicated screenshots for the moat detail dialog, radar-health panel and actual-fill ledger are not yet stored under `docs/assets/`.
+This README intentionally does not embed legacy backtest charts. The public site link above is the current presentation of the forward barbell snapshot; dedicated screenshots for the moat detail dialog, radar-health panel and actual-fill ledger are not yet stored under `docs/assets/`.
 
 ## Quick start
 
