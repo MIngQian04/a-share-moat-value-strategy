@@ -1,6 +1,6 @@
 # Architecture
 
-This document maps the current repository rather than a future platform design. The root repository is a Python research and portfolio-accounting project. `portfolio-site/` is a separate nested website repository and is ignored by the root repository.
+This document maps the current A-share Margin of Safety & Global Pricing Power pipeline rather than a future platform design. The root repository is a Python research and portfolio-accounting project. `portfolio-site/` is a separate nested website repository and is ignored by the root repository.
 
 ## Data flow
 
@@ -34,6 +34,8 @@ flowchart TD
 | Curated valuation aid | `config/valuation-repair-briefs.json` | website research aid and institution references |
 
 The repository does not contain an LLM API client. “Local AI research aid” is a static/configuration-backed label for the generated briefs.
+
+The pipeline keeps two analytical gates visible: owner-earnings/DCF and balance-sheet checks establish a margin-of-safety boundary; future-demand, value-capture and moat evidence test whether pricing power may be durable. The second gate is evidence-driven and not a single quantitative factor.
 
 ## Core modules
 
