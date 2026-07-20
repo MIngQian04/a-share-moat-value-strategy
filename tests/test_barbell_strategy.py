@@ -74,6 +74,25 @@ def test_held_seed_survives_a_modest_dcf_premium_with_additions_frozen():
     assert state["valuation_warning_status"] == "WITHIN_TOLERANCE"
 
 
+def test_held_seed_survives_missing_timing_confirmation_with_additions_frozen():
+    future = pd.DataFrame([{
+        "ts_code": "A", "policy_status": "POLICY_ELIGIBLE", "future_thesis_score": 80,
+        "valuation_gate": "REASONABLE", "financial_check": "PASS_SURVIVAL",
+        "dcf_margin_of_safety": .20, "timing_status": "WAIT_NO_CONFIRMATION",
+    }])
+    readiness = pd.DataFrame([{"ts_code": "A", "evidence_status": "SEED_READY",
+                               "seed_evidence_ready": True, "promotion_evidence_ready": True}])
+    previous = pd.DataFrame([{"ts_code": "A", "allocation_bucket": "FUTURE",
+                              "target_weight": .025, "strategy_state": "OPTION_SEED"}])
+    state = classify_future_states(
+        future, pd.DataFrame([{"ts_code": "A"}]), readiness,
+        previous_portfolio=previous, as_of="2026-07-20",
+    ).iloc[0]
+    assert state["barbell_state"] == "OPTION_SEED"
+    assert state["valuation_warning_status"] == "TIMING_WAIT"
+    assert "暂停加仓和晋级" in state["state_reason"]
+
+
 def test_persistent_seed_premium_reduces_one_ladder_step_after_warning():
     future = pd.DataFrame([{
         "ts_code": "A", "name": "A", "policy_status": "POLICY_ELIGIBLE", "future_thesis_score": 80,

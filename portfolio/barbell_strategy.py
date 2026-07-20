@@ -491,12 +491,25 @@ def classify_future_states(
         out.at[idx, "previous_strategy_state"] = prior_state
         if prior_weight <= 0 or prior_state not in {"OPTION_SEED", "CONFIRMED_BUILD", "PROMOTED_CORE"}:
             continue
-        # Only valuation is allowed to invoke this grace path. Hard thesis,
-        # evidence and cash failures retain their normal reduction behaviour.
+        # Timing is an entry/addition gate, not an exit gate for an already
+        # held seed.  Keep the existing ladder step when price/volume
+        # confirmation is absent, while freezing additions and promotion.
+        # Hard thesis, evidence and cash failures retain their normal
+        # reduction behaviour.
         hard_ready = bool(policy_pass.loc[idx] and thesis_pass.loc[idx] and cash_pass.loc[idx]
-                          and evidence_pass.loc[idx] and not invalidated.loc[idx]
-                          and (bottom.loc[idx] or trend.loc[idx]))
-        if not hard_ready or bool(value_pass.loc[idx]) or pd.isna(margin.loc[idx]):
+                          and evidence_pass.loc[idx] and not invalidated.loc[idx])
+        timing_ready = bool(bottom.loc[idx] or trend.loc[idx])
+        if not hard_ready or pd.isna(margin.loc[idx]):
+            continue
+        if bool(value_pass.loc[idx]) and not timing_ready:
+            out.at[idx, "barbell_state"] = prior_state
+            out.at[idx, "valuation_warning_status"] = "TIMING_WAIT"
+            out.at[idx, "valuation_warning_reason"] = (
+                "已持有未来种子仓，但当前没有底部/放量确认；保留原仓位，暂停加仓和晋级，等待新的时点信号。"
+            )
+            out.at[idx, "state_reason"] = out.at[idx, "valuation_warning_reason"]
+            continue
+        if timing_ready and bool(value_pass.loc[idx]):
             continue
         premium_exceeded = bool(out.at[idx, "valuation_premium_exceeded"])
         warning = warning_map.get(code, {})
