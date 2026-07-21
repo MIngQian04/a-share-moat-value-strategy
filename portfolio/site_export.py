@@ -43,6 +43,18 @@ def _normalize_benchmark_dates(values: pd.Series) -> pd.Series:
     return normalized.dt.strftime("%Y-%m-%d")
 
 
+def _next_session_date(as_of: str) -> str:
+    """Return the next weekday for the T+1 board date.
+
+    The strategy snapshot is written after a completed session.  The public
+    board must therefore never label that same close as "next execution".  A
+    weekday fallback is sufficient for the current export; the market-data
+    refresh remains the source of truth for which sessions actually publish.
+    """
+    date = pd.Timestamp(as_of)
+    return (date + pd.offsets.BDay(1)).strftime("%Y-%m-%d")
+
+
 def _refresh_benchmark_cache(nav_dates: list[str]) -> None:
     """Best-effort refresh of missing CSI 300 dates; never fabricates values."""
     if not nav_dates:
@@ -645,7 +657,7 @@ def export_portfolio_site_data(output_dir: Path, destination: Path) -> Path:
     allocation_change = {
         "changed": bool(changes or valuation_warning_rows),
         "activeAsOf": previous_date or str(summary["as_of_date"]),
-        "nextAsOf": str(summary["as_of_date"]),
+        "nextAsOf": _next_session_date(str(summary["as_of_date"])),
         "effectiveLabel": "下一交易日开盘后生效",
         "marketContext": "本轮没有使用宏观大环境择时信号；变化只由个股筛选/证据状态、锚仓继承纪律、经济因子分散和现金预算约束驱动。",
         "changes": changes,
