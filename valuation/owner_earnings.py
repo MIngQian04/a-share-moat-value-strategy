@@ -193,6 +193,7 @@ def owner_earnings_from_statements(
         if pd.notna(normalized_fcf) and pd.notna(normalized) and normalized > 0 else np.nan
     )
     return {
+        "financial_as_of": periods[-1] if periods else "",
         "financial_years": len(history),
         "owner_earnings_positive_years": owner_positive_years,
         "fcf_positive_years": fcf_positive_years,

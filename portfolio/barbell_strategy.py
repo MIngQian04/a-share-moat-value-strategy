@@ -645,6 +645,35 @@ def build_barbell_weights(
                 and str(warning.get("status", "")) == "WARNING"
                 and str(warning.get("warning_date", "")) < as_of_text
             )
+            cooldown_sessions = int(float(policy.get("anchor_valuation_cooldown_sessions", 5)))
+            cooldown_remaining = int(float(warning.get("cooldown_sessions_remaining", 0) or 0))
+            reduction_count = int(float(warning.get("reduction_count", 0) or 0))
+            warning_consecutive_days = int(float(warning.get("consecutive_days", 0) or 0))
+            # Older warning ledgers did not record the reduction/cooldown
+            # metadata. Treat an already-persistent warning as having already
+            # consumed one reduction, then start a conservative cooldown rather
+            # than repeating the old daily 2.5% decrement after migration.
+            legacy_warning_migration = (
+                warning_persisted
+                and not str(warning.get("last_reduction_date", ""))
+                and warning_consecutive_days >= 2
+            )
+            current_margin = pd.to_numeric(current.get("dcf_optimistic_margin_of_safety"), errors="coerce") if current is not None else pd.NA
+            previous_margin = pd.to_numeric(warning.get("last_reduction_dcf_optimistic_margin"), errors="coerce")
+            current_owner = pd.to_numeric(current.get("normalized_owner_earnings"), errors="coerce") if current is not None else pd.NA
+            previous_owner = pd.to_numeric(warning.get("last_reduction_normalized_owner_earnings"), errors="coerce")
+            current_fcf = pd.to_numeric(current.get("normalized_fcf"), errors="coerce") if current is not None else pd.NA
+            previous_fcf = pd.to_numeric(warning.get("last_reduction_normalized_fcf"), errors="coerce")
+            margin_drop = (
+                pd.notna(current_margin) and pd.notna(previous_margin)
+                and current_margin <= previous_margin - float(policy.get("anchor_valuation_new_evidence_margin_drop", 0.05))
+            )
+            financial_drop = any(
+                pd.notna(now) and pd.notna(old) and old > 0
+                and now <= old * (1 - float(policy.get("anchor_valuation_new_evidence_financial_drop", 0.05)))
+                for now, old in [(current_owner, previous_owner), (current_fcf, previous_fcf)]
+            )
+            fresh_deterioration = bool(margin_drop or financial_drop)
             if manual_override is not None:
                 weight = manual_override["target_weight"]
                 reason = manual_override["reason"]
@@ -663,8 +692,21 @@ def build_barbell_weights(
             elif dcf_status == "OVER_OPTIMISTIC" and warning_persisted:
                 reduction_step = float(policy.get("anchor_reduction_step", 0.025))
                 minimum_weight = float(policy.get("anchor_min_weight", reduction_step))
-                weight = max(previous_weight - reduction_step, minimum_weight)
-                reason = "价格连续高于乐观DCF情景；预警已确认，下一交易日按2.5个百分点减仓，估值本身不直接清仓。"
+                if legacy_warning_migration:
+                    weight = previous_weight
+                    reason = "已有连续估值预警记录；迁移到渐进减仓纪律，先进入冷静期，不重复按日减仓。"
+                elif cooldown_remaining > 0:
+                    weight = previous_weight
+                    reason = f"估值仍高于乐观DCF情景；上一档减仓后的冷静期剩余{cooldown_remaining}个交易日，暂不重复减仓。"
+                elif reduction_count == 0:
+                    weight = max(previous_weight - reduction_step, minimum_weight)
+                    reason = "价格连续高于乐观DCF情景；预警确认后仅按一档减仓，随后进入5个交易日冷静期。"
+                elif fresh_deterioration:
+                    weight = max(previous_weight - reduction_step, minimum_weight)
+                    reason = "冷静期结束且出现新的DCF/现金收益恶化证据；再按一档减仓，随后重新进入5个交易日冷静期。"
+                else:
+                    weight = previous_weight
+                    reason = "估值仍高于乐观DCF情景，但冷静期后没有新的财务、业绩或DCF恶化证据；保持仓位，不重复减仓。"
             elif eligible_now:
                 weight = previous_weight
                 reason = "上一交易日锚仓保留：基本面、基准DCF和护城河代理没有硬性退出条件，避免因每日评分波动频繁换仓。"

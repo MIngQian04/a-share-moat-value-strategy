@@ -636,10 +636,11 @@ def export_portfolio_site_data(output_dir: Path, destination: Path) -> Path:
                 "status": str(row.get("status", "")),
                 "warningDate": str(row.get("warning_date", "")),
                 "consecutiveDays": int(_number(row.get("consecutive_days", 0))),
+                "cooldownSessionsRemaining": int(_number(row.get("cooldown_sessions_remaining", 0))),
                 "dcfMargin": _number(row.get("dcf_margin_of_safety")),
                 "premiumCap": _number(row.get("valuation_premium_cap")),
                 "reason": str(row.get("reason", "")),
-                "effect": "先预警再确认；若下一交易日仍持续高估，只按一档减仓，不因估值单独清仓。",
+                "effect": "先预警再确认；确认后只减一档并进入冷静期，冷静期内不重复减仓；不因估值单独清仓。",
             })
     allocation_change = {
         "changed": bool(changes or valuation_warning_rows),

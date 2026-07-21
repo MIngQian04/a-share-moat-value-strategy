@@ -192,7 +192,13 @@ def update_valuation_warning_history(
 
 
 def update_anchor_valuation_warning_history(
-    anchors: pd.DataFrame, previous_warnings: pd.DataFrame, as_of: str, destination: Path,
+    anchors: pd.DataFrame,
+    previous_warnings: pd.DataFrame,
+    as_of: str,
+    destination: Path,
+    portfolio: pd.DataFrame | None = None,
+    previous_portfolio: pd.DataFrame | None = None,
+    cooldown_sessions: int = 5,
 ) -> pd.DataFrame:
     """Persist one-session warnings for anchors priced above the optimistic DCF."""
     prior = {}
@@ -202,20 +208,48 @@ def update_anchor_valuation_warning_history(
         frame["warning_date"] = frame["warning_date"].astype(str) if "warning_date" in frame else ""
         prior = frame.drop_duplicates("ts_code", keep="last").set_index("ts_code").to_dict("index")
     rows = []
+    current_weights = {}
+    previous_weights = {}
+    if portfolio is not None and not portfolio.empty and "ts_code" in portfolio:
+        current_weights = portfolio.set_index(portfolio["ts_code"].astype(str))["target_weight"].astype(float).to_dict()
+    if previous_portfolio is not None and not previous_portfolio.empty and "ts_code" in previous_portfolio:
+        previous_weights = previous_portfolio.set_index(previous_portfolio["ts_code"].astype(str))["target_weight"].astype(float).to_dict()
     for _, row in anchors.iterrows():
         code = str(row["ts_code"])
         previous = prior.get(code, {})
         previous_status = str(previous.get("status", ""))
         previous_date = str(previous.get("warning_date", ""))
         over_optimistic = str(row.get("anchor_dcf_status", "NOT_FETCHED")) == "OVER_OPTIMISTIC"
+        previous_cooldown = int(float(previous.get("cooldown_sessions_remaining", 0) or 0))
+        previous_reductions = int(float(previous.get("reduction_count", 0) or 0))
+        last_reduction_date = str(previous.get("last_reduction_date", ""))
+        reduced_now = (
+            code in current_weights and code in previous_weights
+            and current_weights[code] < previous_weights[code] - 1e-12
+        )
         if over_optimistic:
             consecutive = int(previous.get("consecutive_days", 0)) + 1 if previous_status == "WARNING" and previous_date < as_of else 1
             warning_date = as_of if consecutive == 1 else previous_date
             status = "WARNING"
+            if reduced_now:
+                last_reduction_date = as_of
+                previous_cooldown = cooldown_sessions
+                previous_reductions += 1
+            elif not last_reduction_date and consecutive >= 2:
+                # Migration for the pre-cooldown ledger: the old repeated
+                # reductions are treated as one already-confirmed reduction.
+                last_reduction_date = as_of
+                previous_cooldown = max(previous_cooldown, cooldown_sessions)
+                previous_reductions = max(previous_reductions, 1)
+            elif previous_date < as_of and previous_cooldown > 0:
+                previous_cooldown -= 1
         else:
             consecutive = 0
             warning_date = ""
             status = "CLEARED" if previous_status == "WARNING" else "NONE"
+            previous_cooldown = 0
+            previous_reductions = 0
+            last_reduction_date = ""
         rows.append({
             "ts_code": code,
             "name": row.get("name", ""),
@@ -226,6 +260,25 @@ def update_anchor_valuation_warning_history(
             "anchor_dcf_status": row.get("anchor_dcf_status", "NOT_FETCHED"),
             "dcf_base_margin_of_safety": row.get("dcf_base_margin_of_safety"),
             "dcf_optimistic_margin_of_safety": row.get("dcf_optimistic_margin_of_safety"),
+            "financial_as_of": row.get("financial_as_of", ""),
+            "cooldown_sessions_remaining": max(previous_cooldown, 0),
+            "reduction_count": previous_reductions,
+            "last_reduction_date": last_reduction_date,
+            "last_reduction_dcf_optimistic_margin": (
+                row.get("dcf_optimistic_margin_of_safety") if reduced_now or (
+                    last_reduction_date == as_of and not previous.get("last_reduction_date")
+                ) else previous.get("last_reduction_dcf_optimistic_margin", "")
+            ),
+            "last_reduction_normalized_owner_earnings": (
+                row.get("normalized_owner_earnings") if reduced_now or (
+                    last_reduction_date == as_of and not previous.get("last_reduction_date")
+                ) else previous.get("last_reduction_normalized_owner_earnings", "")
+            ),
+            "last_reduction_normalized_fcf": (
+                row.get("normalized_fcf") if reduced_now or (
+                    last_reduction_date == as_of and not previous.get("last_reduction_date")
+                ) else previous.get("last_reduction_normalized_fcf", "")
+            ),
         })
     result = pd.DataFrame(rows)
     result.to_csv(destination, index=False, encoding="utf-8-sig")
@@ -352,7 +405,7 @@ def write_report(portfolio: pd.DataFrame, states: pd.DataFrame, anchors: pd.Data
 
 ### 锚仓调仓纪律
 
-正常运行继承上一交易日已经公布的锚仓名称和仓位；每日评分的小幅变化不能替换既有锚仓。筛选状态需要复核时，只按 {float(policy.get('anchor_reduction_step', 0.025)):.1%} 的阶梯减仓，最低保留 {float(policy.get('anchor_min_weight', 0.025)):.1%}，不自动清仓。新锚仓只有在现金和名额都充足时，才以 {float(policy.get('anchor_entry_weight', 0.025)):.1%} 观察仓进入，不得挤出既有锚仓。本轮没有使用宏观大环境择时信号；调仓只由个股门槛/证据状态、分散约束和现金预算驱动。
+正常运行继承上一交易日已经公布的锚仓名称和仓位；每日评分的小幅变化不能替换既有锚仓。筛选状态需要复核时，只按 {float(policy.get('anchor_reduction_step', 0.025)):.1%} 的阶梯减仓，最低保留 {float(policy.get('anchor_min_weight', 0.025)):.1%}，不自动清仓。若价格连续高于乐观DCF，先预警、确认后只减一档，随后至少冷静 {int(policy.get('anchor_valuation_cooldown_sessions', 5))} 个交易日；再次减仓还必须出现新的财务/业绩或DCF恶化证据。新锚仓只有在现金和名额都充足时，才以 {float(policy.get('anchor_entry_weight', 0.025)):.1%} 观察仓进入，不得挤出既有锚仓。本轮没有使用宏观大环境择时信号；调仓只由个股门槛/证据状态、分散约束和现金预算驱动。
 
 ## 策略结构
 
@@ -473,8 +526,6 @@ def main() -> None:
     )
     anchors = anchor_signal_table(daily, watchlist, anchor_financials, policy)
     anchors.to_csv(OUT / "anchor_screen.csv", index=False, encoding="utf-8-sig")
-    update_anchor_valuation_warning_history(anchors, previous_anchor_warnings, as_of, anchor_warning_path)
-
     portfolio, summary = build_barbell_weights(
         anchors,
         states,
@@ -482,6 +533,11 @@ def main() -> None:
         previous_portfolio=previous_portfolio,
         anchor_valuation_warnings=previous_anchor_warnings,
         as_of=as_of,
+    )
+    update_anchor_valuation_warning_history(
+        anchors, previous_anchor_warnings, as_of, anchor_warning_path,
+        portfolio=portfolio, previous_portfolio=previous_portfolio,
+        cooldown_sessions=int(policy.get("anchor_valuation_cooldown_sessions", 5)),
     )
     selected_anchor_codes = set(
         portfolio.loc[portfolio["allocation_bucket"].eq("ANCHOR"), "ts_code"].astype(str)

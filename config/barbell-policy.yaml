@@ -8,6 +8,9 @@ anchor_sticky: true
 anchor_entry_weight: 0.025
 anchor_reduction_step: 0.025
 anchor_min_weight: 0.025
+anchor_valuation_cooldown_sessions: 5
+anchor_valuation_new_evidence_margin_drop: 0.05
+anchor_valuation_new_evidence_financial_drop: 0.05
 anchor_min_dividend_yield: 2.5
 anchor_min_owner_earnings_yield: 0.03
 anchor_max_net_debt_to_owner_earnings: 6.0

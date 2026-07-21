@@ -258,6 +258,62 @@ def test_anchor_above_optimistic_dcf_warns_then_reduces_one_step():
     assert "减仓" in second.iloc[0]["reason"]
 
 
+def test_anchor_valuation_reduction_enters_cooldown_instead_of_repeating_daily():
+    anchors = pd.DataFrame([{
+        "ts_code": "A", "name": "A", "defensive_status": "WATCH",
+        "anchor_dcf_status": "OVER_OPTIMISTIC", "dcf_optimistic_margin_of_safety": -.15,
+        "normalized_owner_earnings": 100.0, "normalized_fcf": 80.0,
+        "financial_as_of": "20241231", "l1_name": "消费", "economic_factor": "CONSUMPTION",
+    }])
+    previous = pd.DataFrame([{"ts_code": "A", "name": "A", "allocation_bucket": "ANCHOR", "target_weight": .125}])
+    policy = {**POLICY, "anchor_sticky": True, "anchor_min_weight": .025,
+              "anchor_reduction_step": .025, "anchor_valuation_cooldown_sessions": 5}
+    warnings = pd.DataFrame([{
+        "ts_code": "A", "warning_date": "2026-07-17", "status": "WARNING",
+        "consecutive_days": 4, "cooldown_sessions_remaining": 4,
+        "reduction_count": 1, "last_reduction_date": "2026-07-18",
+        "last_reduction_dcf_optimistic_margin": -.15,
+        "last_reduction_normalized_owner_earnings": 100.0,
+        "last_reduction_normalized_fcf": 80.0,
+    }])
+    portfolio, _ = build_barbell_weights(
+        anchors, pd.DataFrame(columns=["barbell_state"]), policy,
+        previous_portfolio=previous, anchor_valuation_warnings=warnings,
+        as_of="2026-07-21",
+    )
+    assert portfolio.iloc[0]["target_weight"] == .125
+    assert "冷静期" in portfolio.iloc[0]["reason"]
+
+
+def test_anchor_can_reduce_again_only_after_cooldown_and_new_deterioration():
+    anchors = pd.DataFrame([{
+        "ts_code": "A", "name": "A", "defensive_status": "WATCH",
+        "anchor_dcf_status": "OVER_OPTIMISTIC", "dcf_optimistic_margin_of_safety": -.21,
+        "normalized_owner_earnings": 90.0, "normalized_fcf": 70.0,
+        "financial_as_of": "20251231", "l1_name": "消费", "economic_factor": "CONSUMPTION",
+    }])
+    previous = pd.DataFrame([{"ts_code": "A", "name": "A", "allocation_bucket": "ANCHOR", "target_weight": .125}])
+    policy = {**POLICY, "anchor_sticky": True, "anchor_min_weight": .025,
+              "anchor_reduction_step": .025, "anchor_valuation_cooldown_sessions": 5,
+              "anchor_valuation_new_evidence_margin_drop": .05,
+              "anchor_valuation_new_evidence_financial_drop": .05}
+    warnings = pd.DataFrame([{
+        "ts_code": "A", "warning_date": "2026-07-10", "status": "WARNING",
+        "consecutive_days": 8, "cooldown_sessions_remaining": 0,
+        "reduction_count": 1, "last_reduction_date": "2026-07-14",
+        "last_reduction_dcf_optimistic_margin": -.15,
+        "last_reduction_normalized_owner_earnings": 100.0,
+        "last_reduction_normalized_fcf": 80.0,
+    }])
+    portfolio, _ = build_barbell_weights(
+        anchors, pd.DataFrame(columns=["barbell_state"]), policy,
+        previous_portfolio=previous, anchor_valuation_warnings=warnings,
+        as_of="2026-07-21",
+    )
+    assert portfolio.iloc[0]["target_weight"] == .10
+    assert "新的DCF/现金收益恶化证据" in portfolio.iloc[0]["reason"]
+
+
 def test_manual_anchor_override_releases_weight_to_cash():
     anchors = pd.DataFrame([{
         "ts_code": "000786.SZ", "name": "北新建材", "defensive_status": "DEFENSIVE_ELIGIBLE",
