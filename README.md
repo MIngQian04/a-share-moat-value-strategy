@@ -1,8 +1,8 @@
-# A-Share Margin of Safety Strategy
+# Margin of Safety Investment Research Platform
 
 **Machines search. Humans judge. Rules execute. Markets verify.**
 
-A research framework for finding A-share companies with a defensible margin of safety, using normalized owner earnings, cash-flow quality, balance-sheet strength, five-scenario DCF valuation and falsifiable moat evidence.
+An investment research platform for finding A-share companies with a defensible margin of safety, using normalized owner earnings, cash-flow quality, balance-sheet strength, five-scenario DCF valuation and falsifiable moat evidence.
 
 The system first establishes valuation boundaries through normalized owner earnings, cash-flow quality, balance-sheet strength and five-scenario DCF analysis. It then records moat hypotheses, dated evidence, monitoring indicators and invalidation signals as a separate research workflow; a low valuation alone is never treated as proof of a durable advantage.
 
