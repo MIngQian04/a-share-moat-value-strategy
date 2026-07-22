@@ -176,8 +176,8 @@ The current repository contains deterministic Python screening, financial proces
 Requirements: Python 3.10+, a local Tushare token, and Node.js/npm only if you build the separate website. Different Tushare endpoints may require different permissions.
 
 ```bash
-git clone https://github.com/MIngQian04/a-share-moat-value-strategy.git
-cd a-share-moat-value-strategy
+git clone https://github.com/MIngQian04/margin-of-safety-investment-research-platform.git
+cd margin-of-safety-investment-research-platform
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
